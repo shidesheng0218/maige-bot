@@ -1,7 +1,7 @@
 // maige-bot SessionStart hook
 // 读取 stdin 的事件 JSON，注入「麦格已就位」的上下文，然后退出。
 // 升级：同时注入麦格的最近记忆（非敏感，最新 5 条）与「提示词就绪」的整活单，
-// 让 MCode 会话与麦格总部面板共享记忆与任务。任何读取失败都退化为静态文案，不影响会话。
+// 让 MCode 会话与麦格面板共享记忆与任务。任何读取失败都退化为静态文案，不影响会话。
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -70,7 +70,7 @@ process.stdin.on("end", async () => {
     const [mems, tasks] = await Promise.all([recentMemories(), readyTasks()]);
     if (mems.length) {
       context +=
-        "\n\n麦格记住的事（来自麦格总部，自然使用、不要背诵）：\n" +
+        "\n\n麦格记住的事（来自麦格面板，自然使用、不要背诵）：\n" +
         mems.map((m) => `- ${m.name}：${m.description}`).join("\n");
     }
     if (tasks.length) {

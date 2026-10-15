@@ -1,5 +1,5 @@
 // @ts-check
-// 麦格总部 Node 服务：概览 + 记忆 CRUD + 作品库（预览）+ 设置（版本号见 PANEL_VERSION / plugin.json）
+// 麦格面板 Node 服务：概览 + 记忆 CRUD + 作品库（预览）+ 设置（版本号见 PANEL_VERSION / plugin.json）
 // 数据源：本地授权目录（记忆目录 / 作品目录 / maige-bot 插件根只读版本号）。
 // 安全：所有文件访问经 realpath 校验，fail-closed 限定在授权目录内；不做任意文件系统代理。
 
@@ -489,9 +489,9 @@ export async function start(context) {
     try {
       const inv = await context.hostConnector.list();
       hostTools = (inv.tools || []).map((t) => ({ provider: t.provider, name: t.name, description: (t.description || '').slice(0, 120) }));
-      context.logger.info('maige-hq.host-connector', { count: hostTools.length, partial: inv.partial === true });
+      context.logger.info('maige-bot.host-connector', { count: hostTools.length, partial: inv.partial === true });
     } catch (e) {
-      context.logger.warn('maige-hq.host-connector.failed', { error: String(e && e.message || e) });
+      context.logger.warn('maige-bot.host-connector.failed', { error: String(e && e.message || e) });
     }
   }
   // 探针落盘：不管宿主有没有注入，都把结果写到固定文件，方便 MCode 面板启动后被外部读取（绕开宿主 Host 校验）
@@ -582,12 +582,12 @@ export async function start(context) {
       s.lastRunAt = now.toISOString();
       await persistSchedules().catch(() => {});
       await appendMessage('group', 'scheduler', '定时任务', `【${s.name}】到点`, 'system');
-      notify('麦格总部 · 定时任务', `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在发言`);
+      notify('麦格 · 定时任务', `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在发言`);
       if (llmReady) {
         await appendMessage('group', 'user', 'Mike', s.text, 'user');
         await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
       }
-      context.logger.info('maige-hq.schedule.fired');
+      context.logger.info('maige-bot.schedule.fired');
     }
   }
 
@@ -878,7 +878,7 @@ ${roster}
       description: body.slice(0, 80).replace(/\r?\n/g, ' '),
       source: 'user', sensitive: false, body, date: today(),
     }), 'utf8');
-    context.logger.info('maige-hq.memory.captured');
+    context.logger.info('maige-bot.memory.captured');
     return id;
   }
 
@@ -931,7 +931,7 @@ ${roster}
       conv.summary = { text: reply.text, upToId: conv.messages[cutoff - 1].id, at: new Date().toISOString() };
       await persistChat().catch(() => {});
       await appendMessage(convId, 'system', '系统', '前面的对话已压缩成纪要（消息都还在，模型读纪要+最近原文）。', 'system');
-      context.logger.info('maige-hq.chat.compressed');
+      context.logger.info('maige-bot.chat.compressed');
     } catch (e) {
       logError('compress', e.message); // 压缩失败不阻塞对话
     }
@@ -999,7 +999,7 @@ ${roster}
         const dir = await realpath(config.outputsDir).catch(() => null);
         if (!dir) return { note: `${speakerName} 写文件失败：作品库目录不存在` };
         await writeFile(join(dir, fname), tool.content, 'utf8');
-        context.logger.info('maige-hq.tool.write');
+        context.logger.info('maige-bot.tool.write');
         // 作品内容贴成卡片直接可见（截断预览，全文在作品库）
         const preview = tool.content.length > 2000 ? tool.content.slice(0, 2000) + '\n…（全文在作品库）' : tool.content;
         await appendMessage(convId, 'system', '作品', '', 'card', undefined, {
@@ -1020,7 +1020,7 @@ ${roster}
           created: new Date().toISOString(), updated: '', createdBy: speakerName, conv: convId,
           deliverables: [], body: tool.content,
         });
-        context.logger.info('maige-hq.task.created');
+        context.logger.info('maige-bot.task.created');
         // 整活单贴成卡片直接可见（标题/类型/状态/需求预览）
         const statusLabel = autoReady ? '已就绪免确认' : '待确认';
         const taskPreview = tool.content.length > 600 ? tool.content.slice(0, 600) + '\n…' : tool.content;
@@ -1030,17 +1030,17 @@ ${roster}
           footer: autoReady ? '点开始即制作，可在任务区退回/取消' : '等 Mike 确认提示词',
         });
         if (autoReady) {
-          notify('麦格总部 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」（${kind}），已就绪可直接制作`);
+          notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」（${kind}），已就绪可直接制作`);
           return { note: `${speakerName} 开了整活单「${tool.arg}」（${kind}，已就绪免确认），已贴在上面，点开始即制作` };
         }
-        notify('麦格总部 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」，等你确认提示词`);
+        notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」，等你确认提示词`);
         return { note: `${speakerName} 开了整活单「${tool.arg}」（待确认），已贴在上面` };
       }
       if (tool.name === 'hire') {
         const r = await hireBot({ key: tool.arg, display: tool.display, role: tool.role, persona: tool.content, createdBy: speakerName });
         if (r.error === 'key_exists') return { note: `${speakerName} 想招 ${tool.display}，但 ${tool.arg} 这个工位已经有人了` };
         if (r.error) return { note: `${speakerName} 招聘失败：${r.error}` };
-        notify('麦格总部 · 新成员入职', `${tool.display}（${tool.role}）`);
+        notify('麦格 · 新成员入职', `${tool.display}（${tool.role}）`);
         return { note: `新成员 ${tool.display} 已入职（${tool.role}），侧栏可见，可单聊、可进群` };
       }
       if (tool.name === 'config') {
@@ -1060,7 +1060,7 @@ ${roster}
           nextModels[tool.arg] = tool.value;
         }
         config = await saveConfig({ models: nextModels, maxTokens: nextMaxTokens });
-        context.logger.info('maige-hq.bot.config-by-chief');
+        context.logger.info('maige-bot.bot.config-by-chief');
         const after = tool.field === 'maxTokens' ? nextMaxTokens[tool.arg] : nextModels[tool.arg];
         return { note: `${speakerName} 把 ${tool.arg} 的 ${tool.field} 调成了 ${after}` };
       }
@@ -1075,7 +1075,7 @@ ${roster}
           const imgBuf = await (await fetch(url)).arrayBuffer();
           const fname = `gen-${Date.now().toString(36)}.jpg`;
           await writeFile(join(dir, fname), Buffer.from(imgBuf));
-          context.logger.info('maige-hq.tool.generate_image');
+          context.logger.info('maige-bot.tool.generate_image');
           // 把图直接贴进聊天（media 字段），不止一句"画好了"
           const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
           await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'image', url: mediaUrl, name: fname });
@@ -1085,7 +1085,7 @@ ${roster}
         if (!r.audioHex) return { note: `${speakerName} 语音生成走了异步，暂不支持，先这样吧` };
         const fname = `tts-${Date.now().toString(36)}.mp3`;
         await writeFile(join(dir, fname), Buffer.from(r.audioHex, 'hex'));
-        context.logger.info('maige-hq.tool.speak');
+        context.logger.info('maige-bot.tool.speak');
         const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
         await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'audio', url: mediaUrl, name: fname });
         return { note: `${speakerName} 配了音「${fname}」，已贴在上面、也进了作品库` };
@@ -1173,7 +1173,7 @@ ${roster}
       const members = await getMembers();
       const chief = members[0];
       await appendMessage(convId, 'system', '圆桌', `圆桌开始，主题：${topic}（每位成员一轮，麦格收尾）`, 'system');
-      notify('麦格总部 · 圆桌', `主题：${topic.slice(0, 60)}`);
+      notify('麦格 · 圆桌', `主题：${topic.slice(0, 60)}`);
       const order = [chief, ...members.slice(1), chief];
       for (const m of order) {
         const base = m.key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(m, 'group');
@@ -1181,7 +1181,7 @@ ${roster}
           + `\n\n【圆桌模式】主题是「${topic}」。轮到你发言：1-3 句口语观点，给真态度，可以反对或补充前面的人；不要客套，不要复述别人的话，不要叫人接棒。`);
       }
       await appendMessage(convId, 'system', '圆桌', '圆桌结束', 'system');
-      context.logger.info('maige-hq.roundtable.done');
+      context.logger.info('maige-bot.roundtable.done');
     } finally {
       conv.typing = null;
       conv.running = false;
@@ -1198,7 +1198,7 @@ ${roster}
       const members = await getMembers();
       const chief = members[0];
       await appendMessage(convId, 'system', '攻坚', `攻坚开始，任务：${task}（麦格拆任务 → 成员讨论 → 麦格收口出方案）`, 'system');
-      notify('麦格总部 · 攻坚', `任务：${task.slice(0, 60)}`);
+      notify('麦格 · 攻坚', `任务：${task.slice(0, 60)}`);
       const brief = (m) => (m.key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(m, 'group'))
         + `\n\n【攻坚模式】当前任务：「${task}」。`;
       // 第 1 棒：麦格拆任务、点名分工
@@ -1236,7 +1236,7 @@ ${roster}
       await speakWithTools(convId, chief, brief(chief)
         + '讨论到这里，你来收口：把大家的意见汇总成一份可执行的方案——谁做什么、产出什么、先后顺序、有没有整活单要开。简洁，能落地。');
       await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
-      context.logger.info('maige-hq.sprint.done');
+      context.logger.info('maige-bot.sprint.done');
     } finally {
       conv.typing = null;
       conv.running = false;
@@ -1418,7 +1418,7 @@ ${roster}
       if (!id) id = `m-${Date.now().toString(36)}`;
       if (await resolveInside(config.memoryDir, `${id}.md`)) return sendError(res, 409, 'id_exists');
       await writeFile(join(listed.real, `${id}.md`), serializeMemory(norm.value), 'utf8');
-      context.logger.info('maige-hq.memory.created');
+      context.logger.info('maige-bot.memory.created');
       sendJson(res, 200, { ok: true, id });
       return;
     }
@@ -1434,7 +1434,7 @@ ${roster}
       // 编辑保留原始记录日期（记住的时间不变）
       norm.value.date = existing.date || norm.value.date;
       await writeFile(target, serializeMemory(norm.value), 'utf8');
-      context.logger.info('maige-hq.memory.updated');
+      context.logger.info('maige-bot.memory.updated');
       sendJson(res, 200, { ok: true, id });
       return;
     }
@@ -1444,7 +1444,7 @@ ${roster}
       const target = await resolveInside(config.memoryDir, `${id}.md`);
       if (!target || !ID_PATTERN.test(id)) return sendError(res, 400, 'invalid_id');
       await unlink(target);
-      context.logger.info('maige-hq.memory.deleted');
+      context.logger.info('maige-bot.memory.deleted');
       sendJson(res, 200, { ok: true, id });
       return;
     }
@@ -1512,8 +1512,8 @@ ${roster}
       const r = await hireBot({ key, display, role, persona, createdBy: 'user' });
       if (r.error === 'key_exists') return sendError(res, 409, 'key_exists');
       if (r.error === 'invalid_key') return sendError(res, 400, 'invalid_key');
-      context.logger.info('maige-hq.team.hired');
-      notify('麦格总部 · 新成员入职', `${display}（${role}）`);
+      context.logger.info('maige-bot.team.hired');
+      notify('麦格 · 新成员入职', `${display}（${role}）`);
       sendJson(res, 200, { ok: true, key });
       return;
     }
@@ -1526,7 +1526,7 @@ ${roster}
       const raw = await readFile(join(AGENTS_DIR, key, 'agent.md'), 'utf8').catch(() => null);
       if (!raw || parseAgentFrontmatter(raw).team !== 'maige') return sendError(res, 404, 'not_found');
       await trashPath(join(AGENTS_DIR, key));
-      context.logger.info('maige-hq.team.fired');
+      context.logger.info('maige-bot.team.fired');
       sendJson(res, 200, { ok: true, key });
       return;
     }
@@ -1696,7 +1696,7 @@ ${roster}
         if (ids.length) nextCaps[key] = ids; else delete nextCaps[key];
       }
       config = await saveConfig({ models: nextModels, capabilities: nextCaps, maxTokens: nextMaxTokens });
-      context.logger.info('maige-hq.bot.updated');
+      context.logger.info('maige-bot.bot.updated');
       sendJson(res, 200, { ok: true, model: modelFor(key) || LLM_MODEL, maxTokens: maxTokensFor(key) || CHAT_MAX_TOKENS, capabilities: nextCaps[key] || [] });
       return;
     }
@@ -1789,7 +1789,7 @@ ${roster}
       if (!dir) return sendError(res, 400, 'outputs_dir_missing');
       const fname = `chat-${convId.replace(/[^A-Za-z0-9]/g, '')}-${Date.now().toString(36)}.md`;
       await writeFile(join(dir, fname), md, 'utf8');
-      context.logger.info('maige-hq.chat.exported');
+      context.logger.info('maige-bot.chat.exported');
       sendJson(res, 200, { ok: true, name: fname });
       return;
     }
@@ -1799,7 +1799,7 @@ ${roster}
       const convId = typeof body.conv === 'string' && CONV_ID.test(body.conv) ? body.conv : 'group';
       getConv(convId).messages = [];
       await persistChat().catch(() => {});
-      context.logger.info('maige-hq.chat.cleared');
+      context.logger.info('maige-bot.chat.cleared');
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -1827,7 +1827,7 @@ ${roster}
         body: String(body.body ?? '').slice(0, 20000),
       };
       await writeTask(t);
-      context.logger.info('maige-hq.task.created');
+      context.logger.info('maige-bot.task.created');
       sendJson(res, 200, { ok: true, id: t.id });
       return;
     }
@@ -1854,12 +1854,12 @@ ${roster}
       if (typeof body.title === 'string' && body.title.trim()) existing.title = body.title.trim().slice(0, 80);
       if (typeof body.body === 'string') existing.body = body.body.slice(0, 20000);
       await writeTask(existing);
-      context.logger.info('maige-hq.task.updated');
+      context.logger.info('maige-bot.task.updated');
       // 交付回写：单子来自哪个会话，交付消息就回到哪个会话
       if (existing.status === 'done' && prevStatus !== 'done' && existing.conv && CONV_ID.test(existing.conv)) {
         const dls = existing.deliverables.length ? '：' + existing.deliverables.join('、') : '';
         await appendMessage(existing.conv, 'system', '整活', `整活单「${existing.title}」已交付${dls}，作品库可见。`, 'system');
-        notify('麦格总部 · 整活交付', `「${existing.title}」已交付${dls}`);
+        notify('麦格 · 整活交付', `「${existing.title}」已交付${dls}`);
       }
       sendJson(res, 200, { ok: true, id, status: existing.status });
       return;
@@ -1871,7 +1871,7 @@ ${roster}
       const target = await resolveInside(TASKS_DIR, `${id}.md`);
       if (!target) return sendError(res, 404, 'not_found');
       await unlink(target);
-      context.logger.info('maige-hq.task.deleted');
+      context.logger.info('maige-bot.task.deleted');
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -1899,7 +1899,7 @@ ${roster}
       };
       schedules.push(s);
       await persistSchedules();
-      context.logger.info('maige-hq.schedule.created');
+      context.logger.info('maige-bot.schedule.created');
       sendJson(res, 200, { ok: true, id: s.id });
       return;
     }
@@ -1947,7 +1947,7 @@ ${roster}
       }
       config = await saveConfig(next);
       if (config.memoryDir) await mkdir(config.memoryDir, { recursive: true }).catch(() => {});
-      context.logger.info('maige-hq.config.saved');
+      context.logger.info('maige-bot.config.saved');
       // 回显时抹掉 key，只报是否已配置——key 不进响应体
       sendJson(res, 200, { ok: true, ...config, minimaxApiKey: config.minimaxApiKey ? '(已配置)' : '' });
       return;
@@ -1958,7 +1958,7 @@ ${roster}
 
   const server = createServer((req, res) => {
     route(req, res).catch((error) => {
-      context.logger.warn('maige-hq.request.failed');
+      context.logger.warn('maige-bot.request.failed');
       if (!res.headersSent) sendError(res, 500, 'internal');
       else res.end();
     });

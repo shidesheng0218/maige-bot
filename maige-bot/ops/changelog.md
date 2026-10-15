@@ -119,7 +119,7 @@
 - 回归 101 项全过（新增任务状态机 12 项：转移合法性/终态/交付物/404/删除）
 
 ## 2026-10-13 麦格总部.app：独立 GUI 壳（用户追问「不能有独立的 gui 吗」）
-- 新增 `miniapps/maige-hq/miniapp/node/standalone.mjs`：脱离 MCode 宿主的独立运行入口
+- 新增 `miniapps/maige-bot/miniapp/node/standalone.mjs`：脱离 MCode 宿主的独立运行入口
   （复用同一 server.mjs，固定端口 17878，数据目录 maige-bot/data/standalone/）
 - 新增 `maige-bot/ops/build-app.sh`：零依赖构建 `麦格总部.app`（Info.plist + bash 启动器 +
   orb 图标经 sips/iconutil 转 icns；旧构建入回收站）
@@ -216,7 +216,7 @@
 - 回归测试 55 项：新增会话列表、三路并发单聊/群聊、头像映射、非法会话防护等用例
 
 ## 2026-10-13 面板改名 maige-hq「麦格总部」（用户反馈"面板"不好听）
-- Mini App：miniapps/maige-panel → miniapps/maige-hq，pluginId/name/displayName 同步
+- Mini App：miniapps/maige-panel → miniapps/maige-bot，pluginId/name/displayName 同步
 - 面板标题改「麦格总部」（HQ=指挥部，呼应麦格 Chief 设定），中英同步
 - server 日志事件前缀、测试脚本路径、AGENTS.md、记忆文件全部同步
 - 旧实例 maige-panel 已 stop，旧目录移入回收站

@@ -13,7 +13,7 @@ Grok 的核心体验：随时在、全能问答、通网、有人格、能整活
 ## 架构（当前 v0.18.0，单插件合体）
 
 插件实体（MiniMax Code 本地 Plugin V1）：`~/.minimax/plugins/maige-bot/`
-**bot 本体与管理面板已合体为一个插件**（2026-10-14，原 maige-hq / maige-panel 已收编删除）：
+**bot 本体与管理面板已合体为一个插件**（2026-10-14，原独立面板插件已收编删除）：
 
 ```
 maige-bot/
@@ -25,7 +25,7 @@ maige-bot/
 │   └── maige-studio/SKILL.md      # 创作间：图/梗图/视频/语音/音乐/双人播客
 ├── hooks/hooks.json               # SessionStart 事件声明
 ├── scripts/session-start.mjs      # 会话开始注入「麦格已就位」上下文
-└── miniapp/                       # 管理面板「麦格总部」（内嵌）
+└── miniapp/                       # 管理面板「麦格」（内嵌）
     ├── miniapp.json               # runtime: process, entry node/server.mjs, surface /panel
     ├── client/index.html          # 面板 UI
     └── node/server.mjs            # 面板服务（群聊引擎/工具层/记忆/作品库/整活单）
@@ -59,7 +59,7 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 
 本目录（`Documents/minimax项目/maige-bot/`）是**项目文档中心**：人设原案、玩法设计、平台调研、迭代记录。
 
-**麦格总部（Mini App，maige-hq）v0.17.0**：`miniapps/maige-hq/`（已发布，local 来源）
+**麦格（Mini App）v0.17.0**：`miniapps/maige-bot/`（已发布，local 来源）
 - **群聊**：多 agent 实时对话——麦格 Chief 首发、@提及点名、成员人格接话（同棒最多 3 人并行接力）、正在输入状态、
   消息搜索、token 用量（每条消息带消耗，成员栏聚合）；引擎直连 config.yaml 的 OpenAI 兼容 provider（kimi-k3），消息持久化
 - **概览**：KPI（记忆数/作品数/敏感数/麦格版本）、最近记忆与作品、快捷口令速查

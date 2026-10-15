@@ -13,8 +13,8 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 |---|---|---|
 | 麦格插件（人格/技能/Hook） | `~/.minimax/plugins/maige-bot/` | Plugin V1 规范；改 skill 后 bump `.minimax-plugin/plugin.json` 的 version |
 | 团队 agent（班底） | `~/.minimax/agents/<name>/` | `agent.md` frontmatter 必须带 `team: maige` + `display: 名字` 才会被面板收录；可由面板招聘（`[[HIRE]]` / 团队 tab），移除入回收站 |
-| 麦格总部（Mini App） | `miniapps/maige-hq/`（本工作区） | 改完必须 `node maige-bot/ops/test-panel.mjs` 全过，再 publish。每 bot 可选模型 + 可选 maxTokens 分档（`config.models` / `config.maxTokens`） |
-| 麦格总部.app（独立 GUI） | 工作区根目录 `麦格总部.app` | 由 `maige-bot/ops/build-app.sh` 生成；独立入口 `standalone.mjs`，端口 17878，数据目录 `maige-bot/data/standalone/`；改 server 后要重跑 build-app.sh |
+| 麦格（Mini App） | `miniapps/maige-bot/`（本工作区） | 改完必须 `node maige-bot/ops/test-panel.mjs` 全过，再 publish。每 bot 可选模型 + 可选 maxTokens 分档（`config.models` / `config.maxTokens`） |
+| 麦格.app（独立 GUI） | 工作区根目录 `麦格.app` | 由 `maige-bot/ops/build-app.sh` 生成；独立入口 `standalone.mjs`，端口 17878，数据目录 `maige-bot/data/standalone/`；改 server 后要重跑 build-app.sh |
 | 项目文档中心 | `maige-bot/`（本工作区） | 迭代记到 `ops/changelog.md`，调研存 `research/` |
 | 麦格记忆文件 | `maige-bot/memory/*.md` | 每条一个 .md，frontmatter: name/description/source(user\|maige\|tool)/date/sensitive |
 | 能力包 | `maige-bot/capabilities/*.md` | 每包一个 .md，frontmatter: name/description；面板「能力库」tab 读取，挂到 bot 即注入其 system prompt |

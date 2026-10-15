@@ -11,11 +11,11 @@ const dataDir = join(ROOT, 'maige-bot/ops/.tools-test-data');
 const fakeOutputs = mkdtempSync(join(tmpdir(), 'maige-tools-out-'));
 rmSync(dataDir, { recursive: true, force: true });
 
-const { start } = await import(join(ROOT, 'miniapps/maige-hq/miniapp/node/server.mjs'));
+const { start } = await import(join(ROOT, 'miniapps/maige-bot/miniapp/node/server.mjs'));
 const ac = new AbortController();
 const base = 'http://127.0.0.1:18323';
 const life = await start({
-  pluginRoot: join(ROOT, 'miniapps/maige-hq'),
+  pluginRoot: join(ROOT, 'miniapps/maige-bot'),
   dataDir,
   listen: { host: '127.0.0.1', port: 18323 },
   signal: ac.signal,

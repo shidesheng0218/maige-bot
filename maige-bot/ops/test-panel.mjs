@@ -12,12 +12,12 @@ const dataDir = join(ROOT, 'maige-bot/ops/.panel-test-data');
 mkdtempSync; // noop 引用检查
 rmSync(dataDir, { recursive: true, force: true });
 
-const { start, parseTool, resolveWorkspace, maxTokensForRole, avatarSvgFor } = await import(join(ROOT, 'miniapps/maige-hq/miniapp/node/server.mjs'));
+const { start, parseTool, resolveWorkspace, maxTokensForRole, avatarSvgFor } = await import(join(ROOT, 'miniapps/maige-bot/miniapp/node/server.mjs'));
 const ac = new AbortController();
 const base = 'http://127.0.0.1:18321';
 
 const life = await start({
-  pluginRoot: join(ROOT, 'miniapps/maige-hq'),
+  pluginRoot: join(ROOT, 'miniapps/maige-bot'),
   dataDir,
   listen: { host: '127.0.0.1', port: 18321 },
   signal: ac.signal,
@@ -93,7 +93,7 @@ try {
 
   // 1. 面板页
   const html = await (await fetch(base + '/panel')).text();
-  check('GET /panel', html.includes('麦格总部'));
+  check('GET /panel', html.includes('麦格'));
 
   // 2. 概览替代原 state 端点
   const stateOv = await (await fetch(base + '/api/overview')).json();
@@ -135,7 +135,7 @@ try {
   // 8. 文件下载 + 穿越防护
   const fileRes = await fetch(base + '/api/outputs/file?name=' + encodeURIComponent('README.md'));
   check('file served', fileRes.ok && (await fileRes.text()).includes('maige-bot'));
-  const evil = await fetch(base + '/api/outputs/file?name=' + encodeURIComponent('../miniapps/maige-hq/package.json'));
+  const evil = await fetch(base + '/api/outputs/file?name=' + encodeURIComponent('../miniapps/maige-bot/package.json'));
   check('file traversal blocked', evil.status === 404);
 
   // 9. 非法目录
@@ -153,7 +153,7 @@ try {
 
   // 11. 插件信息
   const info = await (await fetch(base + '/api/info')).json();
-  const manifest = JSON.parse(readFileSync(join(ROOT, 'miniapps/maige-hq/.minimax-plugin/plugin.json'), 'utf8'));
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'miniapps/maige-bot/.minimax-plugin/plugin.json'), 'utf8'));
   check('info versions', info.panelVersion === manifest.version && typeof info.maigeVersion === 'string');
 
   // 12. 新增记忆 → 列表出现 → 编辑 → 删除
