@@ -28,16 +28,19 @@ Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，
 **前置**：装好 MiniMax Code（MCode）桌面版，Node ≥ 18。
 
 ```bash
-# 1. 插件目录（MCode 自动识别，新会话生效）
-~/.minimax/plugins/maige-bot/
-
-# 2. 可选：配 MiniMax API key（解锁文生图/语音），面板设置页填或：
-curl -X PUT http://127.0.0.1:17878/api/config \
-  -H "content-type: application/json" -d '{"minimaxApiKey":"sk-..."}'
-
-# 3. 独立运行（脱离 MCode 宿主）
-node miniapps/maige-bot/miniapp/node/standalone.mjs   # http://127.0.0.1:17878/panel
+git clone https://github.com/shidesheng0218/maige-bot.git
+cd maige-bot
+./install.sh
 ```
+
+装完打开 MCode 新会话，叫一声「麦格」就好使。
+
+**可选**：配 MiniMax API key 解锁文生图/语音——面板设置页填，或：
+`curl -X PUT http://127.0.0.1:17878/api/config -H 'content-type: application/json' -d '{"minimaxApiKey":"sk-..."}'`
+
+**独立运行**（脱离 MCode）：`node miniapps/maige-bot/miniapp/node/standalone.mjs` → http://127.0.0.1:17878/panel
+
+**卸载**：`./install.sh --uninstall`
 
 **路径可配**：所有目录默认从 `$HOME/Documents/minimax项目` 推导，用环境变量覆盖——
 `MAIGE_ROOT` / `MAIGE_MEMORY_DIR` / `MAIGE_OUTPUTS_DIR` / `MAIGE_AGENTS_DIR` 等，见 `server.mjs` 顶部。
