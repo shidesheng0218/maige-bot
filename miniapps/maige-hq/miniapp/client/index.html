@@ -1,0 +1,3151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>麦格总部</title>
+  <style>
+    :root, [data-theme='light'] {
+      --mcode-bg: #ffffff;
+      --mcode-bg-secondary: #f5f5f5;
+      --mcode-surface: #ffffff;
+      --mcode-surface-muted: #fafafa;
+      --mcode-text: #171717;
+      --mcode-text-muted: #666666;
+      --mcode-text-subtle: #adadad;
+      --mcode-border: #0a0a0a14;
+      --mcode-border-strong: #0a0a0af2;
+      --mcode-accent: #0094fc;
+      --mcode-success: #04b54b;
+      --mcode-warning: #f56811;
+      --mcode-danger: #f73646;
+      --mcode-primary-action-bg: #171717;
+      --mcode-primary-action-text: #ffffff;
+    }
+    [data-theme='dark'] {
+      --mcode-bg: #171717;
+      --mcode-bg-secondary: #1c1c1c;
+      --mcode-surface: #262626;
+      --mcode-surface-muted: #262626;
+      --mcode-text: #ededed;
+      --mcode-text-muted: #949494;
+      --mcode-text-subtle: #666666;
+      --mcode-border: #ffffff14;
+      --mcode-border-strong: #fffffff2;
+      --mcode-accent: #0077d9;
+      --mcode-success: #009c3d;
+      --mcode-warning: #e25507;
+      --mcode-danger: #e31937;
+      --mcode-primary-action-bg: #ffffff;
+      --mcode-primary-action-text: #171717;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--mcode-bg); color: var(--mcode-text);
+      font-family: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 14px; line-height: 1.6;
+    }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--mcode-accent); outline-offset: 2px; }
+
+    /* ========== DS Bot 式应用壳：左栏会话列表 + 右侧聊天主区 ========== */
+    .app { display: flex; height: 100vh; overflow: hidden; }
+    .side {
+      width: 264px; flex-shrink: 0; display: flex; flex-direction: column;
+      border-right: 1px solid var(--mcode-border); background: var(--mcode-bg-secondary);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+    .brand-name { font-size: 15px; font-weight: 600; line-height: 1.3; }
+    .brand-sub { font-size: 11px; color: var(--mcode-text-subtle); }
+    .side-list { flex: 1; overflow-y: auto; padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 2px; }
+    .side-sect { font-size: 11px; color: var(--mcode-text-subtle); padding: 10px 10px 4px; }
+    .conv {
+      display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      border: none; background: transparent; padding: 8px; border-radius: 10px;
+      cursor: pointer; color: var(--mcode-text); font-family: inherit;
+    }
+    .conv:hover { background: var(--mcode-surface); }
+    .conv.active { background: var(--mcode-surface); box-shadow: inset 0 0 0 1px var(--mcode-border); }
+    .conv-meta { flex: 1; min-width: 0; }
+    .conv-name { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+    .conv-badge { font-size: 10px; line-height: 1.6; padding: 0 6px; border-radius: 999px; background: var(--mcode-accent); color: #fff; }
+    .conv-sub { font-size: 11px; color: var(--mcode-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .conv-time { font-size: 10px; color: var(--mcode-text-subtle); align-self: flex-start; margin-top: 3px; flex-shrink: 0; }
+    .side-foot { padding: 10px; border-top: 1px solid var(--mcode-border); }
+    .side-foot .btn { width: 100%; }
+
+    .avatar {
+      position: relative; width: 36px; height: 36px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+      background: var(--mcode-surface-muted); border: 1px solid var(--mcode-border);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; color: var(--mcode-text-muted);
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .chat-view { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; }
+    .chat-head {
+      display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+      border-bottom: 1px solid var(--mcode-border); background: var(--mcode-bg); flex-shrink: 0;
+    }
+    .chat-peer { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+    .chat-peer-name { font-size: 15px; font-weight: 600; }
+    .chat-peer-role { font-size: 12px; color: var(--mcode-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .chat-search { width: 170px; height: 30px; font-size: 12px; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+    .msg { display: flex; gap: 8px; max-width: 78%; }
+    .msg-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .msg .msg-name { font-size: 12px; color: var(--mcode-text-muted); }
+    .msg .bubble { padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+    .msg.user { align-self: flex-end; }
+    .msg.user .msg-col { align-items: flex-end; }
+    .msg.user .bubble { background: var(--mcode-primary-action-bg); color: var(--mcode-primary-action-text); border-bottom-right-radius: 4px; }
+    .msg.agent { align-self: flex-start; }
+    .msg.agent .bubble { background: var(--mcode-surface-muted); border: 1px solid var(--mcode-border); border-bottom-left-radius: 4px; }
+    .msg.agent.chief .msg-name { color: var(--mcode-accent); font-weight: 600; }
+    .msg.system { align-self: center; max-width: 90%; display: block; }
+    .msg.system .bubble { background: transparent; color: var(--mcode-text-subtle); font-size: 12px; text-align: center; }
+    .msg .msg-usage { font-size: 11px; color: var(--mcode-text-subtle); }
+    .chat-typing { padding: 4px 24px; font-size: 12px; color: var(--mcode-text-muted); flex-shrink: 0; }
+    .chat-input-row { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--mcode-border); flex-shrink: 0; }
+    .chat-input-row .input { flex: 1; }
+    .chat-empty { margin: auto; text-align: center; color: var(--mcode-text-muted); padding: 24px; max-width: 420px; }
+    .chat-empty .state-title { margin-bottom: 4px; }
+    .chat-empty-avatar { margin: 0 auto 12px; width: 56px; height: 56px; font-size: 22px; }
+
+    .admin-view { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; }
+
+    /* ========== 管理台（原分区样式） ========== */
+    .page { max-width: 960px; margin: 0 auto; padding: 24px; }
+    header.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .page-title { font-size: 18px; line-height: 28px; font-weight: 600; margin: 0; }
+    .page-desc { font-size: 12px; color: var(--mcode-text-muted); margin: 4px 0 0; }
+    .tabs { display: inline-flex; gap: 4px; background: var(--mcode-bg-secondary); border-radius: 8px; padding: 4px; margin: 20px 0 16px; flex-wrap: wrap; }
+    .tabs button {
+      border: none; background: transparent; color: var(--mcode-text-muted);
+      font-size: 14px; padding: 6px 16px; border-radius: 6px; cursor: pointer;
+    }
+    .tabs button[aria-selected='true'] { background: var(--mcode-surface); color: var(--mcode-text); font-weight: 500; box-shadow: 0 1px 3px rgb(10 10 10 / 8%); }
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .dir-note { font-size: 12px; color: var(--mcode-text-subtle); font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 56ch; }
+    .btn {
+      height: 32px; padding: 0 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+      border: 1px solid var(--mcode-border); background: var(--mcode-surface-muted); color: var(--mcode-text);
+      transition: opacity 150ms ease-out;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--mcode-primary-action-bg); color: var(--mcode-primary-action-text); border-color: transparent; }
+    .btn-danger { color: var(--mcode-danger); background: transparent; }
+    .btn-text { border: none; background: transparent; color: var(--mcode-accent); height: auto; padding: 4px 8px; }
+    .input, .textarea, .select {
+      width: 100%; font-size: 13px; padding: 8px 10px;
+      border: 1px solid var(--mcode-border); border-radius: 8px;
+      background: var(--mcode-surface); color: var(--mcode-text);
+      font-family: inherit;
+    }
+    .input { height: 36px; }
+    .textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
+    .input::placeholder, .textarea::placeholder { color: var(--mcode-text-subtle); }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 12px; color: var(--mcode-text-muted); margin-bottom: 4px; }
+    .field-row { display: flex; gap: 12px; }
+    .field-row .field { flex: 1; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .form-error { color: var(--mcode-danger); font-size: 12px; margin-top: 4px; min-height: 16px; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; }
+    .kpi-label { font-size: 12px; color: var(--mcode-text-muted); }
+    .kpi-value { font-size: 26px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+    .section-title { font-size: 16px; line-height: 24px; font-weight: 500; margin: 24px 0 12px; }
+    .mini-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .mini-item { display: flex; align-items: center; gap: 8px; background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+    .mini-item .meta { margin-left: auto; font-size: 12px; color: var(--mcode-text-subtle); }
+    .chart-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; }
+    .usage-chart { width: 100%; height: 140px; display: block; }
+    .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--mcode-text-muted); }
+    .chart-legend .lg { display: inline-flex; align-items: center; gap: 4px; }
+    .chart-legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .rank-bar-wrap { flex: 1; height: 6px; background: var(--mcode-surface-muted); border-radius: 3px; overflow: hidden; margin: 0 8px; }
+    .rank-bar { height: 100%; background: var(--mcode-accent); border-radius: 3px; }
+    .schedule-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+    .schedule-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; }
+    .schedule-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .schedule-name { font-weight: 500; }
+    .schedule-meta { font-size: 12px; color: var(--mcode-text-subtle); }
+    .schedule-text { margin: 6px 0 0; font-size: 13px; color: var(--mcode-text-muted); }
+    .theme-row { display: flex; gap: 8px; }
+    .theme-row .btn[aria-pressed='true'] { background: var(--mcode-primary-action-bg); color: var(--mcode-primary-action-text); border-color: transparent; }
+    .error-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .error-item { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+    .error-item .error-msg { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; color: var(--mcode-text); }
+    .error-item .error-meta { color: var(--mcode-text-subtle); margin-top: 2px; }
+    .command-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .command-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 12px 16px; }
+    .command-key { font-weight: 600; font-size: 13px; }
+    .command-desc { font-size: 12px; color: var(--mcode-text-muted); margin-top: 2px; }
+
+    ul.memory-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+    .memory-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; cursor: pointer; transition: border-color 150ms ease-out; }
+    .memory-card:hover { border-color: var(--mcode-border-strong); }
+    .memory-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .badge { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--mcode-border); background: var(--mcode-surface-muted); }
+    .badge-user { color: var(--mcode-accent); }
+    .badge-maige { color: var(--mcode-warning); }
+    .badge-tool { color: var(--mcode-text-muted); }
+    .badge-sensitive { color: var(--mcode-danger); border-color: var(--mcode-danger); }
+    .memory-date { font-size: 12px; color: var(--mcode-text-subtle); }
+    .memory-name { font-weight: 500; }
+    .memory-desc { margin: 6px 0 0; color: var(--mcode-text); }
+    .memory-excerpt { margin: 6px 0 0; font-size: 13px; color: var(--mcode-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .memory-actions { margin-left: auto; display: flex; gap: 4px; }
+
+    .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .member-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; }
+    .member-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .member-name { font-size: 16px; font-weight: 600; }
+    .member-key { font-size: 12px; color: var(--mcode-text-subtle); font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .member-status { margin-left: auto; font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--mcode-border); }
+    .member-status.ready { color: var(--mcode-success); }
+    .member-status.missing { color: var(--mcode-danger); }
+    .member-role { font-size: 13px; color: var(--mcode-accent); margin-top: 4px; }
+    .member-desc { font-size: 13px; color: var(--mcode-text); margin-top: 6px; }
+    .member-persona { font-size: 12px; color: var(--mcode-text-muted); margin-top: 8px; line-height: 1.6; border-top: 1px solid var(--mcode-border); padding-top: 8px; white-space: pre-wrap; }
+    .team-hint { font-size: 12px; color: var(--mcode-text-subtle); margin-top: 16px; }
+
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+    .work-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; overflow: hidden; cursor: pointer; transition: border-color 150ms ease-out; text-align: left; padding: 0; }
+    .work-card:hover { border-color: var(--mcode-border-strong); }
+    .work-thumb { aspect-ratio: 16/10; background: var(--mcode-surface-muted); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .work-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .work-thumb .kind-label { font-size: 12px; color: var(--mcode-text-muted); }
+    .work-body { padding: 12px; }
+    .work-name { font-size: 13px; font-weight: 500; word-break: break-all; color: var(--mcode-text); }
+    .work-meta { font-size: 12px; color: var(--mcode-text-subtle); margin-top: 4px; }
+
+    .state-block { padding: 48px 16px; text-align: center; color: var(--mcode-text-muted); }
+    .state-title { font-size: 14px; color: var(--mcode-text); margin-bottom: 4px; }
+    .state-desc { font-size: 12px; }
+    .state-block[role='alert'] { color: var(--mcode-danger); }
+    .spinner { width: 20px; height: 20px; border: 2px solid var(--mcode-border); border-top-color: var(--mcode-accent); border-radius: 50%; margin: 0 auto 8px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: var(--mcode-primary-action-bg); color: var(--mcode-primary-action-text);
+      padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none;
+      transition: opacity 150ms ease-out; z-index: 30;
+    }
+    .toast.show { opacity: 1; }
+    .modal-mask { position: fixed; inset: 0; background: rgb(0 0 0 / 40%); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 20; }
+    .modal { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; box-shadow: 0 0 20px rgb(10 10 10 / 8%); max-width: 460px; width: 100%; padding: 20px; max-height: 85vh; overflow-y: auto; }
+    .modal.modal-wide { max-width: 720px; }
+    .modal h2 { font-size: 16px; margin: 0 0 8px; }
+    .modal p { font-size: 13px; color: var(--mcode-text-muted); margin: 0 0 16px; word-break: break-all; }
+    .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .preview-body { display: flex; align-items: center; justify-content: center; background: var(--mcode-surface-muted); border-radius: 8px; min-height: 120px; overflow: hidden; }
+    .preview-body img { max-width: 100%; max-height: 60vh; display: block; }
+    .preview-body video, .preview-body audio { width: 100%; }
+    .preview-body video { max-height: 60vh; }
+    .detail-body { font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; background: var(--mcode-surface-muted); border-radius: 8px; padding: 12px; margin-top: 12px; }
+    /* bot 详情弹窗 */
+    .bot-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .bot-head h2 { margin: 0; }
+    .bot-role { font-size: 12px; color: var(--mcode-text-muted); margin: 2px 0 0; }
+    .field-hint { font-size: 11px; color: var(--mcode-text-subtle); margin-top: 4px; }
+    .caps-list { display: flex; flex-direction: column; gap: 6px; }
+    .cap-check { display: flex; align-items: flex-start; gap: 8px; background: var(--mcode-surface-muted); border: 1px solid var(--mcode-border); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    .cap-check input { margin-top: 3px; }
+    .cap-name { font-size: 13px; font-weight: 500; }
+    .cap-desc { font-size: 12px; color: var(--mcode-text-muted); margin-top: 2px; }
+    .bot-usage { font-size: 13px; color: var(--mcode-text-muted); }
+    .chat-peer { cursor: pointer; border-radius: 8px; padding: 4px 6px; margin: -4px -6px; }
+    .chat-peer:hover { background: var(--mcode-surface-muted); }
+    .cap-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 16px; }
+    .cap-card .memory-head { margin-bottom: 2px; }
+    .cap-attached { font-size: 12px; color: var(--mcode-text-subtle); margin-top: 6px; }
+    .cap-attached .badge { margin-right: 4px; }
+    /* 任务看板 */
+    .task-group { margin-bottom: 20px; }
+    .task-group-title { font-size: 12px; font-weight: 600; color: var(--mcode-text-muted); margin: 0 0 8px; letter-spacing: 0.02em; }
+    .task-card { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; padding: 12px 16px; cursor: pointer; transition: border-color 150ms ease-out; }
+    .task-card:hover { border-color: var(--mcode-border-strong); }
+    .task-card .memory-head { margin-bottom: 2px; }
+    .task-title { font-weight: 500; }
+    .task-meta { font-size: 12px; color: var(--mcode-text-subtle); margin-left: auto; }
+    .task-excerpt { margin: 4px 0 0; font-size: 12px; color: var(--mcode-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .badge-status-draft { color: var(--mcode-warning); }
+    .badge-status-ready { color: var(--mcode-accent); }
+    .badge-status-making { color: var(--mcode-warning); }
+    .badge-status-done { color: var(--mcode-success); }
+    .badge-status-cancelled { color: var(--mcode-text-subtle); }
+    .task-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .task-deliverables { margin-top: 8px; font-size: 13px; }
+    .task-deliverables a { color: var(--mcode-accent); }
+    .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .info-table td { padding: 8px 0; border-bottom: 1px solid var(--mcode-border); vertical-align: top; }
+    .info-table td:first-child { color: var(--mcode-text-muted); width: 120px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 860px) {
+      .side { width: 220px; }
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .gallery { grid-template-columns: 1fr 1fr; }
+      .field-row { flex-direction: column; gap: 0; }
+      .page { padding: 16px; }
+      .chat-search { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner { animation: none; }
+      .btn, .toast, .memory-card, .work-card { transition: none; }
+    }
+  </style>
+  <style>
+    /* ================================================================
+       v0.13.0 商业质感设计系统（覆盖层）
+       签名：麦格紫 orb —— 品牌位、Chief、激活会话、发送键、输入中光圈
+       ================================================================ */
+    :root, [data-theme='light'] {
+      --maige-brand: #6e56cf;
+      --maige-brand-strong: #5a44c2;
+      --maige-brand-soft: rgb(110 86 207 / 10%);
+      --shadow-1: 0 1px 2px rgb(10 10 10 / 5%);
+      --shadow-2: 0 4px 16px rgb(10 10 10 / 8%);
+      --shadow-pop: 0 16px 48px rgb(10 10 10 / 16%);
+    }
+    [data-theme='dark'] {
+      --maige-brand: #9e8cfc;
+      --maige-brand-strong: #b3a5ff;
+      --maige-brand-soft: rgb(158 140 252 / 14%);
+      --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+      --shadow-2: 0 4px 16px rgb(0 0 0 / 44%);
+      --shadow-pop: 0 16px 48px rgb(0 0 0 / 64%);
+    }
+
+    body { font-feature-settings: 'cv02', 'cv11'; letter-spacing: -0.003em; }
+
+    /* ---------- 侧栏 ---------- */
+    .side { width: 272px; background: var(--mcode-bg-secondary); }
+    .brand { padding: 16px 14px 12px; gap: 12px; }
+    .brand .avatar { width: 40px; height: 40px; border: none; box-shadow: var(--shadow-2); }
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+    .brand-sub { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mcode-text-subtle); margin-top: 1px; }
+    .side-list { padding: 4px 10px 10px; }
+    .side-sect {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+      padding: 14px 10px 6px; color: var(--mcode-text-subtle);
+    }
+    .conv { padding: 8px 10px; border-radius: 12px; gap: 10px; position: relative; transition: background 150ms ease-out; }
+    .conv .avatar { width: 38px; height: 38px; border: none; box-shadow: var(--shadow-1); font-size: 15px; }
+    .conv:hover { background: var(--mcode-surface); }
+    .conv.active { background: var(--mcode-surface); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--mcode-border); }
+    .conv.active::before {
+      content: ''; position: absolute; left: -1px; top: 11px; bottom: 11px; width: 3px;
+      border-radius: 3px; background: var(--maige-brand);
+    }
+    .conv-name { font-size: 13px; font-weight: 600; }
+    .conv-badge { background: var(--maige-brand); color: #fff; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; }
+    .conv-sub { font-size: 11.5px; color: var(--mcode-text-muted); margin-top: 1px; }
+    .side-foot { padding: 12px 10px; }
+    .side-foot .btn { border-radius: 10px; box-shadow: var(--shadow-1); }
+
+    /* 在线光圈：正在输入的 bot 头像起一圈品牌色涟漪（签名动效） */
+    .avatar.live::after {
+      content: ''; position: absolute; inset: -3px; border-radius: 50%;
+      border: 2px solid var(--maige-brand); animation: maige-ring 1.4s ease-out infinite;
+    }
+    @keyframes maige-ring { 0% { transform: scale(0.88); opacity: 0.9; } 100% { transform: scale(1.28); opacity: 0; } }
+
+    /* ---------- 聊天主区 ---------- */
+    .chat-head { padding: 12px 20px; gap: 14px; }
+    .chat-peer { gap: 12px; }
+    .chat-peer .avatar { width: 38px; height: 38px; border: none; box-shadow: var(--shadow-1); }
+    .chat-peer-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+    .chat-peer-role { font-size: 11.5px; }
+    .chat-peer-status { font-size: 11px; color: var(--mcode-text-subtle); display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mcode-success); flex-shrink: 0; }
+    .chat-search { border-radius: 999px; height: 32px; padding: 0 14px; box-shadow: var(--shadow-1); }
+    .chat-head-actions .btn { white-space: nowrap; }
+
+    .chat-messages { padding: 28px 24px 20px; gap: 2px; align-items: center; }
+    .msg { width: min(720px, 100%); max-width: 100%; gap: 10px; }
+    .msg:not(.grouped) { margin-top: 12px; }
+    .msg .avatar { width: 30px; height: 30px; border: none; box-shadow: var(--shadow-1); font-size: 12px; }
+    .msg .bubble {
+      border-radius: 16px; padding: 9px 14px; font-size: 14px; line-height: 1.65;
+      box-shadow: var(--shadow-1); animation: msg-in 160ms ease-out;
+    }
+    @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
+    .msg.user { justify-content: flex-end; }
+    .msg.user .bubble {
+      background: var(--maige-brand); color: #fff; border-bottom-right-radius: 5px;
+      box-shadow: var(--shadow-2);
+    }
+    [data-theme='dark'] .msg.user .bubble { color: #17132b; }
+    .msg.agent .bubble { background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-bottom-left-radius: 5px; }
+    .msg.agent.chief .msg-name { color: var(--maige-brand); font-weight: 700; }
+    .msg.grouped .avatar { visibility: hidden; }
+    .msg .msg-name { font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; }
+    .msg .msg-usage { font-size: 10px; letter-spacing: 0.02em; }
+    .bubble strong { font-weight: 700; }
+    .bubble .inline-code {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12.5px; background: var(--mcode-surface-muted);
+      border: 1px solid var(--mcode-border); border-radius: 5px; padding: 1px 5px;
+    }
+    .msg.user .bubble .inline-code { background: rgb(255 255 255 / 18%); border-color: transparent; }
+    [data-theme='dark'] .msg.user .bubble .inline-code { background: rgb(0 0 0 / 18%); }
+
+    /* 流式草稿 / 图片消息 / 图标按钮 / 附图预览 */
+    .msg.draft .bubble { opacity: 0.75; }
+    .msg-img { max-width: min(280px, 100%); border-radius: 10px; display: block; margin-bottom: 6px; }
+    .icon-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--mcode-border); flex-shrink: 0;
+      background: var(--mcode-surface); color: var(--mcode-text-muted); cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: color 150ms ease-out, border-color 150ms ease-out;
+    }
+    .icon-btn:hover { color: var(--mcode-text); border-color: var(--mcode-border-strong); }
+    .icon-btn.recording { color: #fff; background: var(--mcode-danger); border-color: transparent; animation: rec-pulse 1.2s ease-in-out infinite; }
+    @keyframes rec-pulse { 50% { opacity: 0.6; } }
+    .attach-preview { width: min(764px, 100%); align-self: center; padding: 8px 24px 0; display: flex; gap: 8px; }
+    .attach-chip { position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid var(--mcode-border); box-shadow: var(--shadow-1); }
+    .attach-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .attach-chip button {
+      position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; border: none;
+      background: rgb(0 0 0 / 60%); color: #fff; font-size: 11px; line-height: 1; cursor: pointer; padding: 0;
+    }
+
+    /* 系统/工具消息：居中胶囊 */
+    .msg.system { width: min(720px, 100%); align-self: center; display: flex; justify-content: center; margin-top: 12px; }
+    /* 生成物内联展示（图/音/视频） */
+    .msg.media { width: min(720px, 100%); align-self: center; display: flex; justify-content: center; margin-top: 12px; }
+    .media-wrap { max-width: 480px; border-radius: var(--radius-lg, 14px); overflow: hidden; box-shadow: var(--shadow-2, 0 2px 12px rgba(0,0,0,.12)); }
+    .media-img { display: block; width: 100%; height: auto; }
+    .media-audio { width: min(420px, 80vw); display: block; }
+    .media-video { display: block; width: 100%; max-height: 480px; }
+    /* 结构化结果卡片（搜索结果/作品/整活单——直接出实物） */
+    .msg.card { width: min(720px, 100%); align-self: center; display: flex; justify-content: center; margin-top: 12px; }
+    .card-wrap { width: 100%; max-width: 560px; background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: var(--radius-lg, 14px); padding: 14px 16px; box-shadow: var(--shadow-1, 0 1px 4px rgba(0,0,0,.06)); }
+    .card-title { font-size: 13px; font-weight: 600; color: var(--mcode-text); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .card-body { font-size: 13px; color: var(--mcode-text-muted); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+    .card-item { padding: 6px 0; border-top: 1px solid var(--mcode-border); }
+    .card-item:first-child { border-top: none; padding-top: 0; }
+    .card-item-title { font-weight: 600; color: var(--mcode-text); }
+    .card-item a { color: var(--mcode-accent); text-decoration: none; word-break: break-all; }
+    .card-item a:hover { text-decoration: underline; }
+    .card-item-snippet { color: var(--mcode-text-muted); font-size: 12px; margin-top: 2px; }
+    .msg.system .bubble {
+      background: var(--mcode-surface-muted); border: 1px solid var(--mcode-border);
+      border-radius: 999px; padding: 5px 14px; font-size: 11.5px; color: var(--mcode-text-muted);
+      box-shadow: none; text-align: center; white-space: pre-wrap;
+    }
+    .msg.system .bubble.toolish { background: var(--maige-brand-soft); border-color: transparent; }
+
+    /* 时间分隔线 */
+    .time-divider {
+      width: min(720px, 100%); align-self: center; display: flex; align-items: center; gap: 12px;
+      font-size: 11px; color: var(--mcode-text-subtle); margin: 16px 0 4px; letter-spacing: 0.02em;
+    }
+    .time-divider::before, .time-divider::after { content: ''; flex: 1; height: 1px; background: var(--mcode-border); }
+
+    /* 输入中：三点品牌色 */
+    .chat-typing { width: min(720px, 100%); align-self: center; padding: 8px 24px 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .typing-dots { display: inline-flex; gap: 4px; align-items: center; }
+    .typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--maige-brand); animation: typing-bounce 1.2s ease-in-out infinite; }
+    .typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+    /* 发送区：悬浮药丸 */
+    .chat-input-row { width: min(764px, 100%); align-self: center; padding: 12px 24px 18px; border-top: none; gap: 10px; }
+    .chat-input-row .input { height: 44px; border-radius: 999px; padding: 0 18px; box-shadow: var(--shadow-1); font-size: 14px; }
+    .chat-input-row .input:focus { box-shadow: var(--shadow-2), 0 0 0 3px var(--maige-brand-soft); }
+    #chat-send {
+      width: 44px; height: 44px; border-radius: 50%; border: none; flex-shrink: 0;
+      background: var(--maige-brand); color: #fff; display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow-2); transition: background 150ms ease-out, transform 150ms ease-out;
+    }
+    #chat-send:hover { background: var(--maige-brand-strong); opacity: 1; transform: translateY(-1px); }
+    #chat-send:active { transform: scale(0.96); }
+    #chat-send:disabled { opacity: 0.45; transform: none; }
+    [data-theme='dark'] #chat-send { color: #17132b; }
+
+    /* ---------- 管理台与通用组件 ---------- */
+    .btn { box-shadow: var(--shadow-1); transition: opacity 150ms ease-out, transform 150ms ease-out; }
+    .btn:hover { opacity: 0.92; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--maige-brand); border: none; }
+    .btn-primary:hover { background: var(--maige-brand-strong); }
+    .btn-text { box-shadow: none; }
+    .kpi-card, .chart-card, .memory-card, .member-card, .schedule-card, .work-card, .command-card, .cap-card {
+      border-radius: 14px; box-shadow: var(--shadow-1);
+    }
+    .kpi-value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+    .tabs { border-radius: 10px; }
+    .tabs button { border-radius: 8px; }
+    .tabs button[aria-selected='true'] { font-weight: 600; box-shadow: var(--shadow-1); }
+    .badge { letter-spacing: 0.01em; }
+    .modal-mask { background: rgb(10 10 10 / 45%); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    .modal { border-radius: 16px; box-shadow: var(--shadow-pop); animation: modal-pop 180ms ease-out; }
+    @keyframes modal-pop { from { opacity: 0; transform: scale(0.96); } }
+    .toast { border-radius: 999px; box-shadow: var(--shadow-pop); font-weight: 500; }
+    .input, .textarea, .select { transition: box-shadow 150ms ease-out; }
+    .input:focus, .textarea:focus, .select:focus { box-shadow: 0 0 0 3px var(--maige-brand-soft); }
+
+    /* 细滚动条 */
+    .side-list::-webkit-scrollbar, .chat-messages::-webkit-scrollbar, .admin-view::-webkit-scrollbar { width: 8px; }
+    .side-list::-webkit-scrollbar-thumb, .chat-messages::-webkit-scrollbar-thumb, .admin-view::-webkit-scrollbar-thumb {
+      background: var(--mcode-border); border-radius: 4px;
+    }
+    .side-list::-webkit-scrollbar-thumb:hover, .chat-messages::-webkit-scrollbar-thumb:hover, .admin-view::-webkit-scrollbar-thumb:hover {
+      background: var(--mcode-text-subtle);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .msg .bubble, .modal { animation: none; }
+      .avatar.live::after, .typing-dots i { animation: none; }
+      #chat-send, .btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- 左栏：品牌 + 会话列表（Chief 置顶 → 群聊 → 成员）+ 管理台入口 -->
+    <aside class="side">
+      <div class="brand">
+        <span class="avatar" id="brand-avatar"></span>
+        <div>
+          <div class="brand-name" data-i18n="title">麦格总部</div>
+          <div class="brand-sub" data-i18n="brandSub">Maige HQ</div>
+        </div>
+      </div>
+      <div class="side-list" id="conv-list" role="listbox" aria-label="conversations"></div>
+      <div class="side-foot">
+        <button class="btn" id="open-admin" data-i18n="nav.admin">管理台</button>
+      </div>
+    </aside>
+
+    <!-- 主区：当前会话 -->
+    <section class="chat-view" id="chat-view">
+      <header class="chat-head">
+        <div class="chat-peer" id="chat-peer"></div>
+        <div class="chat-head-actions">
+          <input class="input chat-search" id="chat-search" type="text" placeholder="搜索消息…" data-i18n-ph="search.chat" data-i18n-aria="search.chat" aria-label="搜索消息" />
+          <button class="btn btn-text" id="chat-export" data-i18n="btn.export">导出</button>
+          <button class="btn btn-text btn-danger" id="chat-clear" data-i18n="btn.clearChat">清空</button>
+        </div>
+      </header>
+      <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+      <div class="chat-typing" id="chat-typing" hidden></div>
+      <div class="attach-preview" id="attach-preview" hidden></div>
+      <form class="chat-input-row" id="chat-form">
+        <input type="file" id="chat-file" accept="image/*" hidden />
+        <button type="button" class="icon-btn" id="chat-attach" data-i18n-aria="chat.attach" aria-label="附图"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="5.8" cy="5.8" r="1.2" fill="currentColor"/><path d="M2.5 11.5 6 8l2.5 2.5L11 8l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <input class="input" id="chat-input" type="text" autocomplete="off" />
+        <button type="button" class="icon-btn" id="chat-mic" data-i18n-aria="chat.mic" aria-label="语音输入" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="2" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 8.5a5 5 0 0 0 10 0M8 13.5V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <button type="submit" id="chat-send" data-i18n-aria="btn.send" aria-label="发送"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M8 3L3.5 7.5M8 3l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </form>
+    </section>
+
+    <!-- 管理台：概览 / 团队 / 记忆 / 作品库 / 定时任务 / 设置 -->
+    <main class="admin-view" id="admin-view" hidden>
+      <div class="page">
+        <header class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="admin.title">管理台</h1>
+            <p class="page-desc" data-i18n="admin.desc">概览、团队、记忆、作品库、定时任务与设置。</p>
+          </div>
+          <button class="btn" id="close-admin" data-i18n="nav.back">← 返回聊天</button>
+        </header>
+
+        <nav class="tabs" role="tablist" aria-label="管理台分区">
+          <button role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" data-i18n="tab.overview">概览</button>
+          <button role="tab" id="tab-team" aria-selected="false" aria-controls="panel-team" data-i18n="tab.team">团队</button>
+          <button role="tab" id="tab-memories" aria-selected="false" aria-controls="panel-memories" data-i18n="tab.memories">记忆管理</button>
+          <button role="tab" id="tab-outputs" aria-selected="false" aria-controls="panel-outputs" data-i18n="tab.outputs">作品库</button>
+          <button role="tab" id="tab-caps" aria-selected="false" aria-controls="panel-caps" data-i18n="tab.caps">能力库</button>
+          <button role="tab" id="tab-tasks" aria-selected="false" aria-controls="panel-tasks" data-i18n="tab.tasks">任务</button>
+          <button role="tab" id="tab-schedules" aria-selected="false" aria-controls="panel-schedules" data-i18n="tab.schedules">定时任务</button>
+          <button role="tab" id="tab-settings" aria-selected="false" aria-controls="panel-settings" data-i18n="tab.settings">设置</button>
+        </nav>
+
+        <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+          <div id="overview-status" role="status"></div>
+          <div id="overview-content" hidden>
+            <div class="kpi-grid">
+              <div class="kpi-card"><div class="kpi-label" data-i18n="kpi.memories">记忆条目</div><div class="kpi-value" id="kpi-memory">-</div></div>
+              <div class="kpi-card"><div class="kpi-label" data-i18n="kpi.outputs">作品数量</div><div class="kpi-value" id="kpi-outputs">-</div></div>
+              <div class="kpi-card"><div class="kpi-label" data-i18n="kpi.sensitive">敏感记忆</div><div class="kpi-value" id="kpi-sensitive">-</div></div>
+              <div class="kpi-card"><div class="kpi-label" data-i18n="kpi.version">麦格版本</div><div class="kpi-value" id="kpi-version">-</div></div>
+              <div class="kpi-card"><div class="kpi-label" data-i18n="kpi.tokens">群聊消耗</div><div class="kpi-value" id="kpi-tokens">-</div></div>
+            </div>
+            <h2 class="section-title" data-i18n="sec.trend">Token 走势（近 14 天）</h2>
+            <div class="chart-card">
+              <svg id="usage-chart" class="usage-chart" role="img" aria-label="Token 走势柱状图"></svg>
+              <div class="chart-legend" id="usage-legend"></div>
+            </div>
+            <h2 class="section-title" data-i18n="sec.rank">成员消耗排行</h2>
+            <ul class="mini-list" id="usage-rank"></ul>
+            <h2 class="section-title" data-i18n="sec.recentMemories">最近记忆</h2>
+            <ul class="mini-list" id="recent-memories"></ul>
+            <h2 class="section-title" data-i18n="sec.recentOutputs">最近作品</h2>
+            <ul class="mini-list" id="recent-outputs"></ul>
+            <h2 class="section-title" data-i18n="sec.commands">快捷口令</h2>
+            <div class="command-grid" id="command-grid"></div>
+          </div>
+        </section>
+
+        <section id="panel-team" role="tabpanel" aria-labelledby="tab-team" hidden>
+          <div class="toolbar">
+            <span class="dir-note" id="team-dir"></span>
+            <button class="btn" id="refresh-team" data-i18n="btn.refresh">刷新</button>
+            <button class="btn btn-primary" id="hire-open" data-i18n="team.hire">新建成员</button>
+          </div>
+          <div id="team-status" role="status"></div>
+          <h2 class="section-title" data-i18n="team.presets">示例编队</h2>
+          <div class="team-grid" id="preset-list"></div>
+          <h2 class="section-title" data-i18n="team.current">当前成员</h2>
+          <div class="team-grid" id="team-grid"></div>
+          <p class="team-hint" data-i18n="team.hint">在会话里对麦格说「开个会」或「团队上」，它就会按任务调对应的成员上场。团队不是固定名单：任务需要新角色时，麦格会递上一份「招聘启事」，你点头它现场入职，并自动出现在本页。</p>
+        </section>
+
+        <section id="panel-memories" role="tabpanel" aria-labelledby="tab-memories" hidden>
+          <div class="toolbar">
+            <span class="dir-note" id="memory-dir"></span>
+            <button class="btn" id="refresh-memories" data-i18n="btn.refresh">刷新</button>
+            <button class="btn btn-primary" id="add-memory" data-i18n="btn.addMemory">新增记忆</button>
+          </div>
+          <div id="memories-status" role="status"></div>
+          <ul class="memory-list" id="memory-list"></ul>
+        </section>
+
+        <section id="panel-outputs" role="tabpanel" aria-labelledby="tab-outputs" hidden>
+          <div class="toolbar">
+            <span class="dir-note" id="outputs-dir-note"></span>
+            <button class="btn" id="refresh-outputs" data-i18n="btn.refresh">刷新</button>
+          </div>
+          <div id="outputs-status" role="status"></div>
+          <div class="gallery" id="gallery"></div>
+        </section>
+
+        <section id="panel-caps" role="tabpanel" aria-labelledby="tab-caps" hidden>
+          <div class="toolbar">
+            <span class="dir-note" id="caps-dir"></span>
+            <button class="btn" id="refresh-caps" data-i18n="btn.refresh">刷新</button>
+          </div>
+          <div id="caps-status" role="status"></div>
+          <ul class="memory-list" id="caps-list"></ul>
+          <p class="team-hint" data-i18n="caps.hint">能力包是纯文本提示词包，挂到某个 bot 后从TA下一条消息起生效。新建：往目录里丢一个 .md 文件（frontmatter 写 name / description）。挂载入口：聊天页点顶部头像，或团队页点成员卡片。</p>
+        </section>
+
+        <section id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+          <div class="toolbar">
+            <span class="dir-note" id="tasks-dir"></span>
+            <button class="btn" id="refresh-tasks" data-i18n="btn.refresh">刷新</button>
+            <button class="btn btn-primary" id="add-task" data-i18n="task.new">新建整活单</button>
+          </div>
+          <div id="tasks-status" role="status"></div>
+          <div id="tasks-board"></div>
+          <p class="team-hint" data-i18n="tasks.hint">整活单是面板与 MCode 会话之间的交接：bot 开好单（提示词包写全），你确认后带回 MCode 会话让麦格制作，成品落作品库后单子标记交付。</p>
+        </section>
+
+        <section id="panel-schedules" role="tabpanel" aria-labelledby="tab-schedules" hidden>
+          <div class="toolbar">
+            <span class="dir-note" data-i18n="schedule.hint">到点后，指定成员会在群聊里自动就这个话题发言</span>
+            <button class="btn" id="refresh-schedules" data-i18n="btn.refresh">刷新</button>
+            <button class="btn btn-primary" id="add-schedule" data-i18n="btn.addSchedule">新建任务</button>
+          </div>
+          <div id="schedules-status" role="status"></div>
+          <ul class="schedule-list" id="schedule-list"></ul>
+        </section>
+
+        <section id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+          <h2 class="section-title" data-i18n="sec.appearance">外观</h2>
+          <div class="theme-row" role="group" aria-label="主题">
+            <button class="btn" id="theme-auto" aria-pressed="true" data-i18n="theme.auto">跟随系统</button>
+            <button class="btn" id="theme-light" aria-pressed="false" data-i18n="theme.light">浅色</button>
+            <button class="btn" id="theme-dark" aria-pressed="false" data-i18n="theme.dark">深色</button>
+          </div>
+          <h2 class="section-title">语言 / Language</h2>
+          <div class="theme-row" role="group" aria-label="语言 Language">
+            <button class="btn" id="lang-auto" aria-pressed="true" data-i18n="lang.auto">跟随浏览器</button>
+            <button class="btn" id="lang-zh" aria-pressed="false">中文</button>
+            <button class="btn" id="lang-en" aria-pressed="false">English</button>
+          </div>
+          <h2 class="section-title" data-i18n="sec.notifications">通知</h2>
+          <div class="checkbox-row">
+            <input type="checkbox" id="cfg-notifications" />
+            <label for="cfg-notifications" data-i18n="settings.notify">定时任务触发、新整活单创建时发 macOS 系统通知</label>
+          </div>
+          <h2 class="section-title" data-i18n="sec.dirs">目录</h2>
+          <div class="field">
+            <label for="cfg-memory-dir" data-i18n="label.memoryDir">记忆目录（绝对路径）</label>
+            <input class="input mono" id="cfg-memory-dir" type="text" />
+          </div>
+          <div class="field">
+            <label for="cfg-outputs-dir" data-i18n="label.outputsDir">作品目录（绝对路径）</label>
+            <input class="input mono" id="cfg-outputs-dir" type="text" />
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-primary" id="save-config" data-i18n="btn.saveConfig">保存目录设置</button>
+            <button class="btn" id="reset-config" data-i18n="btn.resetConfig">恢复默认</button>
+          </div>
+          <h2 class="section-title" data-i18n="sec.info">插件信息</h2>
+          <table class="info-table">
+            <tbody>
+              <tr><td data-i18n="info.panelVersion">面板版本</td><td id="info-panel-version">-</td></tr>
+              <tr><td data-i18n="info.maigeVersion">麦格插件版本</td><td id="info-maige-version">-</td></tr>
+              <tr><td data-i18n="info.memoryDir">记忆目录</td><td class="mono" id="info-memory-dir">-</td></tr>
+              <tr><td data-i18n="info.outputsDir">作品目录</td><td class="mono" id="info-outputs-dir">-</td></tr>
+            </tbody>
+          </table>
+          <h2 class="section-title" data-i18n="sec.diagnostics">诊断</h2>
+          <div class="toolbar">
+            <button class="btn" id="copy-diagnostics" data-i18n="btn.copyDiag">复制诊断信息</button>
+            <span class="dir-note" id="diag-summary"></span>
+          </div>
+          <ul class="error-list" id="error-list"></ul>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 删除确认 -->
+  <div class="modal-mask" id="confirm-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h2 id="confirm-title" data-i18n="confirm.delete.title">删除这条记忆？</h2>
+      <p id="confirm-text"></p>
+      <div class="modal-actions">
+        <button class="btn" id="confirm-cancel" data-i18n="btn.cancel">取消</button>
+        <button class="btn btn-danger" id="confirm-ok" data-i18n="btn.delete">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 记忆表单（新增/编辑） -->
+  <div class="modal-mask" id="form-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="form-title">
+      <h2 id="form-title" data-i18n="form.add">新增记忆</h2>
+      <form id="memory-form" novalidate>
+        <div class="field">
+          <label for="form-name" data-i18n="form.name">名称</label>
+          <input class="input" id="form-name" type="text" maxlength="60" placeholder="例如：咖啡偏好" data-i18n-ph="form.name.ph" />
+        </div>
+        <div class="field">
+          <label for="form-desc" data-i18n="form.desc">一句话摘要</label>
+          <input class="input" id="form-desc" type="text" maxlength="200" placeholder="这条记忆是什么（决定麦格以后想不想得起它）" data-i18n-ph="form.desc.ph" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="form-source" data-i18n="form.source">来源</label>
+            <select class="select" id="form-source">
+              <option value="user" data-i18n="source.user">用户说的</option>
+              <option value="maige" data-i18n="source.maige">麦格推断</option>
+              <option value="tool" data-i18n="source.tool">读到的</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <span class="checkbox-row"><input type="checkbox" id="form-sensitive" /> <label for="form-sensitive" data-i18n="form.sensitive">标记为敏感</label></span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="form-body" data-i18n="form.body">正文</label>
+          <textarea class="textarea" id="form-body" placeholder="具体内容与上下文" data-i18n-ph="form.body.ph"></textarea>
+        </div>
+        <div class="form-error" id="form-error" role="alert"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="form-cancel" data-i18n="btn.cancel">取消</button>
+          <button class="btn btn-primary" type="submit" id="form-submit" data-i18n="btn.save">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 记忆详情 -->
+  <div class="modal-mask" id="detail-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <h2 id="detail-title"></h2>
+      <p id="detail-meta"></p>
+      <div class="detail-body" id="detail-body"></div>
+      <div class="modal-actions">
+        <button class="btn" id="detail-close" data-i18n="btn.close">关闭</button>
+        <button class="btn btn-primary" id="detail-edit" data-i18n="btn.edit">编辑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 作品预览 -->
+  <div class="modal-mask" id="preview-mask" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+      <h2 id="preview-title"></h2>
+      <div class="preview-body" id="preview-body"></div>
+      <div class="modal-actions">
+        <button class="btn" id="preview-close" data-i18n="btn.close">关闭</button>
+        <a class="btn" id="preview-open" href="#" target="_blank" rel="noopener" data-i18n="btn.openFile">打开原文件</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 整活单详情 -->
+  <div class="modal-mask" id="task-mask" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="task-title">
+      <div class="memory-head">
+        <span class="badge" id="task-kind-badge"></span>
+        <span class="badge" id="task-status-badge"></span>
+        <h2 id="task-title" style="margin:0"></h2>
+      </div>
+      <p id="task-meta"></p>
+      <div class="detail-body" id="task-body"></div>
+      <div class="task-deliverables" id="task-deliverables" hidden></div>
+      <div class="field" id="task-dl-field" hidden>
+        <label for="task-dl-input" data-i18n="task.deliverables">交付物（作品库文件名，逗号分隔）</label>
+        <input class="input" id="task-dl-input" type="text" placeholder="cheer.md, poster.png" />
+      </div>
+      <div class="task-actions" id="task-actions"></div>
+      <div class="modal-actions">
+        <button class="btn" id="task-close" data-i18n="btn.close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建整活单 -->
+  <div class="modal-mask" id="tasknew-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tasknew-title">
+      <h2 id="tasknew-title" data-i18n="task.new">新建整活单</h2>
+      <form id="tasknew-form" novalidate>
+        <div class="field">
+          <label for="tn-title" data-i18n="task.title">标题</label>
+          <input class="input" id="tn-title" type="text" maxlength="80" placeholder="例如：摸鱼海报" />
+        </div>
+        <div class="field">
+          <label for="tn-kind" data-i18n="task.kind">类型</label>
+          <select class="select" id="tn-kind">
+            <option value="image">image</option>
+            <option value="video">video</option>
+            <option value="audio">audio</option>
+            <option value="text" selected>text</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="tn-body" data-i18n="task.brief">需求（提示词包可以后补，也可以让 bot 写）</label>
+          <textarea class="textarea" id="tn-body"></textarea>
+        </div>
+        <div class="form-error" id="tn-error" role="alert"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="tn-cancel" data-i18n="btn.cancel">取消</button>
+          <button class="btn btn-primary" type="submit" id="tn-submit" data-i18n="btn.create">创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 招聘表单 -->
+  <div class="modal-mask" id="hire-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="hire-title">
+      <h2 id="hire-title" data-i18n="hire.title">招聘新成员</h2>
+      <form id="hire-form" novalidate>
+        <div class="field-row">
+          <div class="field">
+            <label for="hr-key" data-i18n="hire.key">工位 key（小写字母/连字符）</label>
+            <input class="input mono" id="hr-key" type="text" placeholder="tech-lead" />
+          </div>
+          <div class="field">
+            <label for="hr-name" data-i18n="hire.name">显示名</label>
+            <input class="input" id="hr-name" type="text" maxlength="30" placeholder="Bolt" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="hr-role" data-i18n="hire.role">职责（一句话）</label>
+          <input class="input" id="hr-role" type="text" maxlength="200" placeholder="麦格团队的技术负责人：技术选型、工程方案、代码评审" data-i18n-ph="hire.role.ph" />
+        </div>
+        <div class="field">
+          <label for="hr-persona" data-i18n="hire.persona">人格与能力说明（写给它自己的提示词）</label>
+          <textarea class="textarea" id="hr-persona" data-i18n-ph="hire.persona.ph"></textarea>
+        </div>
+        <div class="form-error" id="hr-error" role="alert"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="hr-cancel" data-i18n="btn.cancel">取消</button>
+          <button class="btn btn-primary" type="submit" id="hr-submit" data-i18n="hire.submit">招进来</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 定时任务表单 -->
+  <div class="modal-mask" id="schedule-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedule-title">
+      <h2 id="schedule-title" data-i18n="schedule.title">新建定时任务</h2>
+      <form id="schedule-form" novalidate>
+        <div class="field">
+          <label for="sch-name" data-i18n="schedule.name">任务名</label>
+          <input class="input" id="sch-name" type="text" maxlength="40" placeholder="例如：每日晨报" data-i18n-ph="schedule.name.ph" />
+        </div>
+        <div class="field">
+          <label for="sch-member" data-i18n="schedule.member">发言人</label>
+          <select class="select" id="sch-member"></select>
+        </div>
+        <div class="field">
+          <label for="sch-text" data-i18n="schedule.text">发言内容</label>
+          <textarea class="textarea" id="sch-text" placeholder="例如：搜一下今天的新闻，给我 5 条毒舌晨报" data-i18n-ph="schedule.text.ph"></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="sch-freq" data-i18n="schedule.freq">频率</label>
+            <select class="select" id="sch-freq">
+              <option value="daily" data-i18n="schedule.freq.daily">每天定点</option>
+              <option value="interval" data-i18n="schedule.freq.interval">每隔 N 分钟</option>
+            </select>
+          </div>
+          <div class="field" id="sch-time-wrap">
+            <label for="sch-time" data-i18n="schedule.time">时间</label>
+            <input class="input" id="sch-time" type="time" value="09:00" />
+          </div>
+          <div class="field" id="sch-minutes-wrap" hidden>
+            <label for="sch-minutes" data-i18n="schedule.minutes">间隔（分钟）</label>
+            <input class="input" id="sch-minutes" type="number" min="1" max="1440" value="60" />
+          </div>
+        </div>
+        <div class="form-error" id="sch-error" role="alert"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="sch-cancel" data-i18n="btn.cancel">取消</button>
+          <button class="btn btn-primary" type="submit" id="sch-submit" data-i18n="btn.create">创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- bot 详情（DS Bot 式：信息 / 模型 / 能力包 / 用量） -->
+  <div class="modal-mask" id="bot-mask" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="bot-title">
+      <div class="bot-head">
+        <span id="bot-avatar"></span>
+        <div>
+          <h2 id="bot-title"></h2>
+          <p class="bot-role" id="bot-role"></p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="bot-model" data-i18n="bot.model">模型</label>
+        <select class="select" id="bot-model"></select>
+        <div class="field-hint" data-i18n="bot.model.hint">换了从下一条消息生效；建议一个 bot 长期用一个模型</div>
+      </div>
+      <div class="field">
+        <label data-i18n="bot.caps">能力包</label>
+        <div class="caps-list" id="bot-caps"></div>
+      </div>
+      <div class="field" id="bot-persona-wrap">
+        <label data-i18n="bot.persona">人格设定</label>
+        <div class="detail-body" id="bot-persona"></div>
+      </div>
+      <div class="field">
+        <label data-i18n="bot.usage">用量</label>
+        <div class="bot-usage" id="bot-usage"></div>
+      </div>
+      <div class="form-error" id="bot-error" role="alert"></div>
+      <div class="modal-actions">
+        <button class="btn" id="bot-cancel" data-i18n="btn.cancel">取消</button>
+        <button class="btn btn-primary" id="bot-save" data-i18n="btn.save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ---------- 语言（中英双语，跟随浏览器，可被设置页覆盖） ----------
+      var I18N = {
+        zh: {
+          'title': '麦格总部', 'brandSub': 'Maige HQ', 'subtitle': '麦格（maige-bot）的指挥部：它记着什么、做过什么、团队里都有谁，都在这里看、在这里管。',
+          'nav.admin': '管理台', 'nav.back': '← 返回聊天',
+          'admin.title': '管理台', 'admin.desc': '概览、团队、记忆、作品库、能力库、定时任务与设置。',
+          'side.members': '成员',
+          'role.chief': '主管 · 大小事找它', 'role.group': '全员群聊',
+          'tab.overview': '概览', 'tab.team': '团队', 'tab.memories': '记忆管理', 'tab.outputs': '作品库', 'tab.caps': '能力库', 'tab.tasks': '任务', 'tab.schedules': '定时任务', 'tab.settings': '设置',
+          'sec.trend': 'Token 走势（近 14 天）', 'sec.rank': '成员消耗排行', 'sec.recentMemories': '最近记忆', 'sec.recentOutputs': '最近作品', 'sec.commands': '快捷口令',
+          'sec.appearance': '外观', 'sec.dirs': '目录', 'sec.info': '插件信息', 'sec.diagnostics': '诊断', 'sec.notifications': '通知',
+          'btn.refresh': '刷新', 'btn.addMemory': '新增记忆', 'btn.addSchedule': '新建任务', 'btn.saveConfig': '保存目录设置', 'btn.resetConfig': '恢复默认',
+          'btn.copyDiag': '复制诊断信息', 'btn.cancel': '取消', 'btn.delete': '删除', 'btn.save': '保存', 'btn.create': '创建', 'btn.close': '关闭', 'btn.edit': '编辑', 'btn.openFile': '打开原文件',
+          'btn.clearChat': '清空', 'btn.send': '发送',
+          'theme.auto': '跟随系统', 'theme.light': '浅色', 'theme.dark': '深色',
+          'lang.auto': '跟随浏览器', 'lang.zh': '中文', 'lang.en': 'English',
+          'label.memoryDir': '记忆目录（绝对路径）', 'label.outputsDir': '作品目录（绝对路径）',
+          'info.panelVersion': '面板版本', 'info.maigeVersion': '麦格插件版本', 'info.memoryDir': '记忆目录', 'info.outputsDir': '作品目录',
+          'kpi.memories': '记忆条目', 'kpi.outputs': '作品数量', 'kpi.sensitive': '敏感记忆', 'kpi.version': '麦格版本', 'kpi.tokens': '聊天消耗',
+          'empty.memories': '麦格还没有记忆', 'empty.memories.desc': '对它说「记住：…」，或点右上角「新增记忆」。',
+          'empty.memories.dir': '记忆目录还不存在', 'empty.team': '还没有团队成员',
+          'toast.remembered': '已记住', 'toast.cleared': '已清空',
+          'a11y.viewMemory': '查看记忆详情', 'a11y.deleteMemory': '删除记忆',
+          'schedule.err.name': '请填写任务名', 'schedule.err.text': '请填写发言内容',
+          'empty.outputs': '作品库还是空的', 'empty.outputs.desc': '叫麦格「整活」——画图、做视频、写歌——成品会出现在这里。',
+          'empty.outputs.dir': '作品目录还不存在', 'empty.outputs.dir.desc': '麦格生成的作品默认会存到这里；也可以在「设置」里换一个目录。',
+          'empty.schedules': '还没有定时任务', 'empty.schedules.desc': '建一个试试：比如每天早上 9 点让麦格发毒舌晨报。',
+          'empty.usage': '还没有消耗数据——去聊天里说句话就有了',
+          'empty.recentMemories': '还没有记忆', 'empty.recentOutputs': '还没有作品',
+          'loading.memories': '正在读取记忆…', 'loading.outputs': '正在读取作品库…', 'loading.team': '正在读取团队…', 'loading.schedules': '正在读取任务…', 'loading.overview': '正在汇总…',
+          'error.read': '读取失败', 'error.read.retry': '面板服务暂时不可用，点「刷新」重试。',
+          'source.user': '用户说的', 'source.maige': '麦格推断', 'source.tool': '读到的',
+          'badge.sensitive': '敏感',
+          'confirm.delete.title': '删除这条记忆？', 'confirm.delete.text': '删除后麦格将不再记得这件事。',
+          'form.add': '新增记忆', 'form.edit': '编辑记忆',
+          'form.name': '名称', 'form.name.ph': '例如：咖啡偏好',
+          'form.desc': '一句话摘要', 'form.desc.ph': '这条记忆是什么（决定麦格以后想不想得起它）',
+          'form.source': '来源', 'form.sensitive': '标记为敏感', 'form.body': '正文', 'form.body.ph': '具体内容与上下文',
+          'form.err.name': '请填写名称', 'form.err.body': '请填写正文',
+          'schedule.title': '新建定时任务', 'schedule.name': '任务名', 'schedule.name.ph': '例如：每日晨报',
+          'schedule.member': '发言人', 'schedule.text': '发言内容', 'schedule.text.ph': '例如：搜一下今天的新闻，给我 5 条毒舌晨报',
+          'schedule.freq': '频率', 'schedule.freq.daily': '每天定点', 'schedule.freq.interval': '每隔 N 分钟',
+          'schedule.time': '时间', 'schedule.minutes': '间隔（分钟）',
+          'schedule.hint': '到点后，指定成员会在群聊里自动就这个话题发言',
+          'schedule.never': '还未执行过', 'schedule.lastRun': '上次执行 ',
+          'schedule.freq.dailyAt': '每天 ', 'schedule.freq.intervalMin': '每 {n} 分钟',
+          'schedule.delete.confirm': '删除定时任务「{name}」？',
+          'chat.typing': '正在输入…',
+          'chat.ph.chief': '和麦格单聊，大小事都可以找它…',
+          'chat.ph.member': '和 {name} 单聊…',
+          'chat.ph.group': '发到群里；@成员名 可直接点名（如 @Quill）',
+          'chat.empty': '群里还很安静', 'chat.empty.desc': '说点什么开场，或者 @ 某位成员直接点名（如 @Quill 写个开场白）。',
+          'chat.empty.chief': '我是麦格，团队的主管',
+          'chat.empty.chief.desc': '问答、锐评、出主意、派活整活——直接说。',
+          'chat.empty.member': '还没和 {name} 聊过', 'chat.empty.member.desc': '打个招呼，或者直接派活。',
+          'chat.notReady': '聊天未就绪', 'chat.notReady.desc': '未检测到可用的模型配置（需要本机 config.yaml 里的 OpenAI 兼容 provider）。',
+          'chat.clear.confirm': '清空当前会话的全部记录？此操作不可恢复。',
+          'preview.noPreview': '该类型不支持预览，请打开原文件查看。',
+          'toast.saved': '已保存', 'toast.deleted': '已删除', 'toast.created': '已创建', 'toast.copied': '诊断信息已复制',
+          'toast.fail.save': '保存失败，请重试', 'toast.fail.delete': '删除失败，请重试', 'toast.fail.create': '创建失败，请重试',
+          'toast.fail.config': '保存失败：请确认是绝对路径', 'toast.fail.send': '发送失败', 'toast.fail.clear': '清空失败',
+          'toast.noClipboard': '当前环境不支持剪贴板', 'toast.fail.diag': '读取诊断失败', 'toast.fail.settings': '读取设置失败',
+          'toast.defaults': '已填入默认路径，点「保存目录设置」生效',
+          'team.hint': '点任意成员即可单聊；「麦格团队」是全员群聊，@名字 可点名。团队不是固定名单：任务需要新角色时，麦格会递上一份「招聘启事」，你点头它现场入职。',
+          'status.ready': '已注册', 'status.missing': '文件缺失',
+          'kind.image': '图片', 'kind.video': '视频', 'kind.audio': '音频', 'kind.file': '文件',
+          'search.chat': '搜索消息…', 'search.noHit': '没有匹配「{term}」的消息',
+          'outputs.dirLabel': '作品目录：', 'team.dirLabel': 'Agent 目录：', 'memory.dirLabel': '记忆目录：',
+          'member.chief': '（主管）', 'usage.perMember': ' 次发言 · ', 'usage.unit': ' tok',
+          'diag.summary.tpl': '模型 {llm} · 消息 {messages} 条 · 定时任务 {schedules} 个',
+          'diag.llm.ready': '已连接', 'diag.llm.off': '未连接', 'diag.noErrors': '暂无错误记录',
+          'bot.model': '模型', 'bot.model.hint': '换了从下一条消息生效；建议一个 bot 长期用一个模型',
+          'bot.caps': '能力包', 'bot.persona': '人格设定', 'bot.usage': '用量',
+          'bot.caps.empty': '还没有能力包——往 capabilities/ 目录丢 .md 文件即可',
+          'bot.usage.none': '还没说过话', 'bot.defaultModel': '默认（{model}）',
+          'caps.attached': '挂载：', 'caps.none': '未挂载', 'empty.caps': '能力库是空的',
+          'loading.caps': '正在读取能力库…', 'a11y.botDetail': '查看 bot 详情', 'toast.fail.bot': '读取 bot 详情失败',
+          'usage.fmt': '{calls} 次发言 · {tokens} tok',
+          'divider.today': '今天', 'divider.date.md': '月{d}日', 'status.online': '在线', 'status.caps': '能力包 ×{n}',
+          'caps.hint': '能力包是纯文本提示词包，挂到某个 bot 后从TA下一条消息起生效。新建：往目录里丢一个 .md 文件（frontmatter 写 name / description）。挂载入口：聊天页点顶部头像，或团队页点成员卡片。',
+          'task.new': '新建整活单', 'task.title': '标题', 'task.kind': '类型',
+          'task.brief': '需求（提示词包可以后补，也可以让 bot 写）', 'task.deliverables': '交付物（作品库文件名，逗号分隔）',
+          'task.err.title': '请填写标题',
+          'tasks.hint': '整活单是面板与 MCode 会话之间的交接：bot 开好单（提示词包写全），你确认后带回 MCode 会话让麦格制作，成品落作品库后单子标记交付。',
+          'tasks.empty': '还没有整活单', 'tasks.empty.desc': '在聊天里说「整活：…」，bot 会把需求和提示词开成一张单；也可以手动新建。',
+          'loading.tasks': '正在读取任务…',
+          'tstatus.draft': '待确认', 'tstatus.ready': '提示词就绪', 'tstatus.making': '制作中', 'tstatus.done': '已交付', 'tstatus.cancelled': '已取消',
+          'taction.confirm': '确认提示词', 'taction.start': '开始制作', 'taction.done': '标记已交付', 'taction.back': '退回', 'taction.revive': '恢复到待确认',
+          'task.by': '开单：', 'settings.notify': '定时任务触发、新整活单创建时发 macOS 系统通知',
+          'team.hire': '新建成员', 'hire.title': '招聘新成员', 'hire.submit': '招进来',
+          'hire.key': '工位 key（小写字母/连字符）', 'hire.name': '显示名', 'hire.role': '职责（一句话）',
+          'hire.role.ph': '麦格团队的技术负责人：技术选型、工程方案、代码评审',
+          'hire.persona': '人格与能力说明（写给它自己的提示词）',
+          'hire.persona.ph': '例如：你是 Bolt，麦格团队的技术负责人。说话直接给方案，先给结论再给理由；工程上保守，体验上挑剔。',
+          'hire.err': '请填写 key、显示名与职责', 'hire.err.key': 'key 只能小写字母开头 + 小写字母/数字/连字符',
+          'hire.exists': '这个 key 已经有人了', 'hire.done': '已入职',
+          'team.fire': '移除', 'team.fire.confirm': '把 {name} 移出团队？（目录入回收站，可恢复）',
+          'team.presets': '示例编队', 'team.current': '当前成员',
+          'preset.hire': '一键组队', 'preset.hired': '已在队里',
+          'preset.life': '个人助理组', 'preset.life.desc': '日程规划 + 习惯养成：把日子过成有节奏的系统。',
+          'preset.study': '学习组', 'preset.study.desc': '私教 + 出题官：学任何东西，讲透再考倒你。',
+          'preset.eng': '工程组', 'preset.eng.desc': '质量守门员 + 运维参谋：代码不止能跑，还得扛造。',
+          'btn.export': '导出', 'toast.exported': '已导出到作品库：{name}', 'toast.export.empty': '当前会话还没有消息可导出',
+          'chat.attach': '附图', 'chat.attach.remove': '移除图片', 'chat.mic': '语音输入', 'chat.micFail': '语音识别不可用',
+        },
+        en: {
+          'title': 'Maige HQ', 'brandSub': '麦格总部', 'subtitle': 'The HQ of Maige (maige-bot): what it remembers, what it made, who is on the team.',
+          'nav.admin': 'Console', 'nav.back': '← Back to Chat',
+          'admin.title': 'Console', 'admin.desc': 'Overview, team, memories, works, capabilities, schedules and settings.',
+          'side.members': 'Bots',
+          'role.chief': 'Chief of Staff', 'role.group': 'Group chat',
+          'tab.overview': 'Overview', 'tab.team': 'Team', 'tab.memories': 'Memories', 'tab.outputs': 'Works', 'tab.caps': 'Capabilities', 'tab.tasks': 'Tasks', 'tab.schedules': 'Schedules', 'tab.settings': 'Settings',
+          'sec.trend': 'Token Trend (14 days)', 'sec.rank': 'Usage by Member', 'sec.recentMemories': 'Recent Memories', 'sec.recentOutputs': 'Recent Works', 'sec.commands': 'Quick Commands',
+          'sec.appearance': 'Appearance', 'sec.dirs': 'Directories', 'sec.info': 'Plugin Info', 'sec.diagnostics': 'Diagnostics', 'sec.notifications': 'Notifications',
+          'btn.refresh': 'Refresh', 'btn.addMemory': 'Add Memory', 'btn.addSchedule': 'New Task', 'btn.saveConfig': 'Save Directories', 'btn.resetConfig': 'Reset Defaults',
+          'btn.copyDiag': 'Copy Diagnostics', 'btn.cancel': 'Cancel', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.create': 'Create', 'btn.close': 'Close', 'btn.edit': 'Edit', 'btn.openFile': 'Open File',
+          'btn.clearChat': 'Clear', 'btn.send': 'Send',
+          'theme.auto': 'System', 'theme.light': 'Light', 'theme.dark': 'Dark',
+          'lang.auto': 'Browser', 'lang.zh': '中文', 'lang.en': 'English',
+          'label.memoryDir': 'Memory directory (absolute path)', 'label.outputsDir': 'Outputs directory (absolute path)',
+          'info.panelVersion': 'Panel Version', 'info.maigeVersion': 'Maige Plugin Version', 'info.memoryDir': 'Memory Directory', 'info.outputsDir': 'Outputs Directory',
+          'kpi.memories': 'Memories', 'kpi.outputs': 'Works', 'kpi.sensitive': 'Sensitive', 'kpi.version': 'Maige Version', 'kpi.tokens': 'Chat Tokens',
+          'empty.memories': 'No memories yet', 'empty.memories.desc': 'Say "记住：…" to Maige, or click "Add Memory".',
+          'empty.memories.dir': 'Memory directory missing', 'empty.team': 'No team members yet',
+          'toast.remembered': 'Remembered', 'toast.cleared': 'Cleared',
+          'a11y.viewMemory': 'View memory details', 'a11y.deleteMemory': 'Delete memory',
+          'schedule.err.name': 'Task name required', 'schedule.err.text': 'Content required',
+          'empty.outputs': 'No works yet', 'empty.outputs.desc': 'Ask Maige to create — images, videos, songs — they land here.',
+          'empty.outputs.dir': 'Outputs directory missing', 'empty.outputs.dir.desc': 'Generated works go here by default; pick another in Settings.',
+          'empty.schedules': 'No scheduled tasks', 'empty.schedules.desc': 'Try one: Maige posts a snarky morning briefing at 9am daily.',
+          'empty.usage': 'No usage yet — say something in a chat first',
+          'empty.recentMemories': 'No memories yet', 'empty.recentOutputs': 'No works yet',
+          'loading.memories': 'Loading memories…', 'loading.outputs': 'Loading works…', 'loading.team': 'Loading team…', 'loading.schedules': 'Loading tasks…', 'loading.overview': 'Summarizing…',
+          'error.read': 'Read failed', 'error.read.retry': 'Panel service unavailable. Click Refresh to retry.',
+          'source.user': 'From user', 'source.maige': 'Maige inferred', 'source.tool': 'From source',
+          'badge.sensitive': 'Sensitive',
+          'confirm.delete.title': 'Delete this memory?', 'confirm.delete.text': 'Maige will no longer remember it.',
+          'form.add': 'Add Memory', 'form.edit': 'Edit Memory',
+          'form.name': 'Name', 'form.name.ph': 'e.g. Coffee preference',
+          'form.desc': 'One-line summary', 'form.desc.ph': 'What this memory is (decides whether Maige recalls it)',
+          'form.source': 'Source', 'form.sensitive': 'Mark as sensitive', 'form.body': 'Content', 'form.body.ph': 'Details and context',
+          'form.err.name': 'Name required', 'form.err.body': 'Content required',
+          'schedule.title': 'New Scheduled Task', 'schedule.name': 'Task name', 'schedule.name.ph': 'e.g. Daily briefing',
+          'schedule.member': 'Speaker', 'schedule.text': 'What to say', 'schedule.text.ph': 'e.g. Search today\'s news and give me 5 snarky headlines',
+          'schedule.freq': 'Frequency', 'schedule.freq.daily': 'Daily at', 'schedule.freq.interval': 'Every N minutes',
+          'schedule.time': 'Time', 'schedule.minutes': 'Interval (minutes)',
+          'schedule.hint': 'When due, the chosen member posts on this topic in the group chat',
+          'schedule.never': 'Never ran', 'schedule.lastRun': 'Last run ',
+          'schedule.freq.dailyAt': 'Daily ', 'schedule.freq.intervalMin': 'Every {n} min',
+          'schedule.delete.confirm': 'Delete task "{name}"?',
+          'chat.typing': ' is typing…',
+          'chat.ph.chief': 'Chat with Maige — anything goes…',
+          'chat.ph.member': 'Chat with {name}…',
+          'chat.ph.group': 'Message the group; @name to call someone out (e.g. @Quill)',
+          'chat.empty': 'The room is quiet', 'chat.empty.desc': 'Say something, or @ a member to call them out (e.g. @Quill for an opening line).',
+          'chat.empty.chief': "I'm Maige, chief of the team",
+          'chat.empty.chief.desc': 'Ask, rant, brainstorm, or commission a creation — just say it.',
+          'chat.empty.member': 'No messages with {name} yet', 'chat.empty.member.desc': 'Say hi, or assign a task directly.',
+          'chat.notReady': 'Chat not ready', 'chat.notReady.desc': 'No usable model config found (needs an OpenAI-compatible provider in config.yaml).',
+          'chat.clear.confirm': 'Clear all messages in this conversation? This cannot be undone.',
+          'preview.noPreview': 'Preview unavailable for this type. Open the file instead.',
+          'toast.saved': 'Saved', 'toast.deleted': 'Deleted', 'toast.created': 'Created', 'toast.copied': 'Diagnostics copied',
+          'toast.fail.save': 'Save failed, retry', 'toast.fail.delete': 'Delete failed, retry', 'toast.fail.create': 'Create failed, retry',
+          'toast.fail.config': 'Save failed: absolute path required', 'toast.fail.send': 'Send failed', 'toast.fail.clear': 'Clear failed',
+          'toast.noClipboard': 'Clipboard unavailable here', 'toast.fail.diag': 'Failed to read diagnostics', 'toast.fail.settings': 'Failed to load settings',
+          'toast.defaults': 'Defaults filled in. Click "Save Directories" to apply.',
+          'team.hint': 'Click any bot for a direct chat; "Maige Team" is the group chat — @name calls someone out. The roster is not fixed: when a task needs a new role, Maige proposes a hire and it appears here once you approve.',
+          'status.ready': 'Ready', 'status.missing': 'Missing files',
+          'kind.image': 'Image', 'kind.video': 'Video', 'kind.audio': 'Audio', 'kind.file': 'File',
+          'search.chat': 'Search messages…', 'search.noHit': 'No messages matching "{term}"',
+          'outputs.dirLabel': 'Outputs dir: ', 'team.dirLabel': 'Agents dir: ', 'memory.dirLabel': 'Memory dir: ',
+          'member.chief': ' (Chief)', 'usage.perMember': ' posts · ', 'usage.unit': ' tok',
+          'diag.summary.tpl': 'Model {llm} · {messages} messages · {schedules} tasks',
+          'diag.llm.ready': 'connected', 'diag.llm.off': 'offline', 'diag.noErrors': 'No errors recorded',
+          'bot.model': 'Model', 'bot.model.hint': 'Applies from the next message; keeping one model per bot is recommended',
+          'bot.caps': 'Capability Packs', 'bot.persona': 'Persona', 'bot.usage': 'Usage',
+          'bot.caps.empty': 'No packs yet — drop .md files into the capabilities/ directory',
+          'bot.usage.none': 'No messages yet', 'bot.defaultModel': 'Default ({model})',
+          'caps.attached': 'Attached: ', 'caps.none': 'not attached', 'empty.caps': 'No capability packs yet',
+          'loading.caps': 'Loading capabilities…', 'a11y.botDetail': 'View bot details', 'toast.fail.bot': 'Failed to load bot details',
+          'usage.fmt': '{calls} posts · {tokens} tok',
+          'divider.today': 'Today', 'divider.date.md': '/{d}', 'status.online': 'Online', 'status.caps': '{n} packs',
+          'caps.hint': 'A capability pack is a plain-text prompt pack — once attached to a bot it applies from its next message. To create one, drop a .md file into the directory (frontmatter: name / description). Attach from the chat header avatar or a team card.',
+          'task.new': 'New Creation Task', 'task.title': 'Title', 'task.kind': 'Kind',
+          'task.brief': 'Brief (the prompt package can come later — or let a bot write it)', 'task.deliverables': 'Deliverables (filenames in Works, comma-separated)',
+          'task.err.title': 'Title required',
+          'tasks.hint': 'A creation task is the handoff between this panel and your MCode session: a bot files it with a full prompt package, you confirm, bring it to MCode for production, then mark it delivered once the work lands in Works.',
+          'tasks.empty': 'No creation tasks yet', 'tasks.empty.desc': 'Say "整活：…" in chat and a bot will file one with the prompt package; or create one manually.',
+          'loading.tasks': 'Loading tasks…',
+          'tstatus.draft': 'Draft', 'tstatus.ready': 'Prompt Ready', 'tstatus.making': 'In Production', 'tstatus.done': 'Delivered', 'tstatus.cancelled': 'Cancelled',
+          'taction.confirm': 'Confirm Prompt', 'taction.start': 'Start Production', 'taction.done': 'Mark Delivered', 'taction.back': 'Send Back', 'taction.revive': 'Restore to Draft',
+          'task.by': 'Filed by ', 'settings.notify': 'macOS notifications for scheduled tasks and new creation tasks',
+          'team.hire': 'New Bot', 'hire.title': 'Hire a New Bot', 'hire.submit': 'Hire',
+          'hire.key': 'Desk key (lowercase/hyphens)', 'hire.name': 'Display name', 'hire.role': 'Role (one line)',
+          'hire.role.ph': 'Tech lead of the Maige team: stack choices, engineering plans, code review',
+          'hire.persona': 'Persona & capability brief (the prompt written to it)',
+          'hire.persona.ph': 'e.g. You are Bolt, tech lead of the Maige team. Answer with the plan first, reasoning second; conservative in engineering, picky about experience.',
+          'hire.err': 'Key, name and role are required', 'hire.err.key': 'Key must start with a letter, lowercase letters/digits/hyphens only',
+          'hire.exists': 'That key is taken', 'hire.done': 'Hired',
+          'team.fire': 'Remove', 'team.fire.confirm': 'Remove {name} from the team? (The directory goes to the Trash and can be restored.)',
+          'team.presets': 'Sample Squads', 'team.current': 'Current Members',
+          'preset.hire': 'Hire the Squad', 'preset.hired': 'On the team',
+          'preset.life': 'Personal Assistant Squad', 'preset.life.desc': 'Planning + habit coaching: turn your days into a system with rhythm.',
+          'preset.study': 'Study Squad', 'preset.study.desc': 'Tutor + quizmaster: learn anything — explained simply, then tested hard.',
+          'preset.eng': 'Engineering Squad', 'preset.eng.desc': 'QA gatekeeper + ops advisor: code that not only runs, but holds up.',
+          'btn.export': 'Export', 'toast.exported': 'Exported to Works: {name}', 'toast.export.empty': 'Nothing to export in this conversation yet',
+          'chat.attach': 'Attach image', 'chat.attach.remove': 'Remove image', 'chat.mic': 'Voice input', 'chat.micFail': 'Speech recognition unavailable',
+        }
+      };
+      var lang = 'zh';
+      try {
+        var savedLang = localStorage.getItem('maige-lang') || 'auto';
+        lang = savedLang === 'auto' ? (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en' : savedLang;
+      } catch (e) { /* 默认 zh */ }
+      function t(key, vars) {
+        var s = (I18N[lang] && I18N[lang][key]) ?? I18N.zh[key] ?? key;
+        if (vars) Object.keys(vars).forEach(function (k) { s = s.replace('{' + k + '}', vars[k]); });
+        return s;
+      }
+      function setLang(mode) {
+        try { localStorage.setItem('maige-lang', mode); } catch (e) { /* 仅本会话生效 */ }
+        lang = mode === 'auto' ? ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en') : mode;
+        applyLang();
+        ['auto', 'zh', 'en'].forEach(function (m) {
+          var btn = document.getElementById('lang-' + m);
+          if (btn) btn.setAttribute('aria-pressed', String(m === mode));
+        });
+      }
+      function applyLang() {
+        document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+        document.title = t('title');
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+          el.textContent = t(el.getAttribute('data-i18n'));
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach(function (el) {
+          el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
+        });
+        document.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
+          el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria')));
+        });
+      }
+
+      // 主题：跟随系统，可被设置页覆盖（视图偏好存 localStorage）
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      var themeOverride = null;
+      try { themeOverride = localStorage.getItem('maige-theme') || 'auto'; } catch (e) { themeOverride = 'auto'; }
+      function applyTheme() {
+        var dark = themeOverride === 'dark' || (themeOverride !== 'light' && mq.matches);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      }
+      function setTheme(mode) {
+        themeOverride = mode;
+        try { localStorage.setItem('maige-theme', mode); } catch (e) { /* 存储不可用时仅本会话生效 */ }
+        applyTheme();
+        ['auto', 'light', 'dark'].forEach(function (m) {
+          var btn = document.getElementById('theme-' + m);
+          if (btn) btn.setAttribute('aria-pressed', String(m === mode));
+        });
+      }
+      applyTheme();
+      applyLang();
+      ['auto', 'zh', 'en'].forEach(function (m) {
+        var btn = document.getElementById('lang-' + m);
+        if (btn) btn.setAttribute('aria-pressed', String(m === (localStorage.getItem('maige-lang') || 'auto')));
+      });
+      if (mq.addEventListener) mq.addEventListener('change', applyTheme);
+
+      var $ = function (id) { return document.getElementById(id); };
+      var els = {
+        convList: $('conv-list'), brandAvatar: $('brand-avatar'),
+        chatView: $('chat-view'), adminView: $('admin-view'),
+        openAdmin: $('open-admin'), closeAdmin: $('close-admin'),
+        chatPeer: $('chat-peer'), chatMessages: $('chat-messages'), chatTyping: $('chat-typing'),
+        chatForm: $('chat-form'), chatInput: $('chat-input'), chatSend: $('chat-send'), chatClear: $('chat-clear'),
+        chatSearch: $('chat-search'), chatExport: $('chat-export'),
+        chatAttach: $('chat-attach'), chatFile: $('chat-file'), chatMic: $('chat-mic'), attachPreview: $('attach-preview'),
+        tabs: {
+          overview: $('tab-overview'), team: $('tab-team'), memories: $('tab-memories'), outputs: $('tab-outputs'), caps: $('tab-caps'), tasks: $('tab-tasks'), schedules: $('tab-schedules'), settings: $('tab-settings')
+        },
+        panels: {
+          overview: $('panel-overview'), team: $('panel-team'), memories: $('panel-memories'), outputs: $('panel-outputs'), caps: $('panel-caps'), tasks: $('panel-tasks'), schedules: $('panel-schedules'), settings: $('panel-settings')
+        },
+        refreshSchedules: $('refresh-schedules'), addSchedule: $('add-schedule'),
+        schedulesStatus: $('schedules-status'), scheduleList: $('schedule-list'),
+        scheduleMask: $('schedule-mask'), scheduleForm: $('schedule-form'),
+        schName: $('sch-name'), schMember: $('sch-member'), schText: $('sch-text'),
+        schFreq: $('sch-freq'), schTime: $('sch-time'), schMinutes: $('sch-minutes'),
+        schTimeWrap: $('sch-time-wrap'), schMinutesWrap: $('sch-minutes-wrap'),
+        schError: $('sch-error'), schCancel: $('sch-cancel'), schSubmit: $('sch-submit'),
+        themeAuto: $('theme-auto'), themeLight: $('theme-light'), themeDark: $('theme-dark'),
+        copyDiagnostics: $('copy-diagnostics'), diagSummary: $('diag-summary'), errorList: $('error-list'),
+        teamDir: $('team-dir'), teamGrid: $('team-grid'), teamStatus: $('team-status'), refreshTeam: $('refresh-team'),
+        overviewStatus: $('overview-status'), overviewContent: $('overview-content'),
+        kpiMemory: $('kpi-memory'), kpiOutputs: $('kpi-outputs'), kpiSensitive: $('kpi-sensitive'), kpiVersion: $('kpi-version'),
+        kpiTokens: $('kpi-tokens'), usageChart: $('usage-chart'), usageLegend: $('usage-legend'), usageRank: $('usage-rank'),
+        recentMemories: $('recent-memories'), recentOutputs: $('recent-outputs'), commandGrid: $('command-grid'),
+        memoryDir: $('memory-dir'), memoryList: $('memory-list'), memoriesStatus: $('memories-status'),
+        refreshMemories: $('refresh-memories'), addMemory: $('add-memory'),
+        outputsDirNote: $('outputs-dir-note'), refreshOutputs: $('refresh-outputs'),
+        outputsStatus: $('outputs-status'), gallery: $('gallery'),
+        cfgMemoryDir: $('cfg-memory-dir'), cfgOutputsDir: $('cfg-outputs-dir'),
+        saveConfig: $('save-config'), resetConfig: $('reset-config'),
+        infoPanelVersion: $('info-panel-version'), infoMaigeVersion: $('info-maige-version'),
+        infoMemoryDir: $('info-memory-dir'), infoOutputsDir: $('info-outputs-dir'),
+        confirmMask: $('confirm-mask'), confirmText: $('confirm-text'), confirmCancel: $('confirm-cancel'), confirmOk: $('confirm-ok'),
+        formMask: $('form-mask'), formTitle: $('form-title'), form: $('memory-form'),
+        formName: $('form-name'), formDesc: $('form-desc'), formSource: $('form-source'),
+        formSensitive: $('form-sensitive'), formBody: $('form-body'), formError: $('form-error'),
+        formCancel: $('form-cancel'), formSubmit: $('form-submit'),
+        detailMask: $('detail-mask'), detailTitle: $('detail-title'), detailMeta: $('detail-meta'),
+        detailBody: $('detail-body'), detailClose: $('detail-close'), detailEdit: $('detail-edit'),
+        previewMask: $('preview-mask'), previewTitle: $('preview-title'), previewBody: $('preview-body'),
+        previewClose: $('preview-close'), previewOpen: $('preview-open'),
+        capsDir: $('caps-dir'), refreshCaps: $('refresh-caps'), capsStatus: $('caps-status'), capsList: $('caps-list'),
+        tasksDir: $('tasks-dir'), refreshTasks: $('refresh-tasks'), tasksStatus: $('tasks-status'), tasksBoard: $('tasks-board'),
+        addTask: $('add-task'), taskMask: $('task-mask'), taskKindBadge: $('task-kind-badge'), taskStatusBadge: $('task-status-badge'),
+        taskTitle: $('task-title'), taskMeta: $('task-meta'), taskBody: $('task-body'), taskDeliverables: $('task-deliverables'),
+        taskDlField: $('task-dl-field'), taskDlInput: $('task-dl-input'), taskActions: $('task-actions'), taskClose: $('task-close'),
+        tasknewMask: $('tasknew-mask'), tasknewForm: $('tasknew-form'),
+        tnTitle: $('tn-title'), tnKind: $('tn-kind'), tnBody: $('tn-body'), tnError: $('tn-error'), tnCancel: $('tn-cancel'), tnSubmit: $('tn-submit'),
+        cfgNotifications: $('cfg-notifications'),
+        hireOpen: $('hire-open'), hireMask: $('hire-mask'), hireForm: $('hire-form'),
+        hrKey: $('hr-key'), hrName: $('hr-name'), hrRole: $('hr-role'), hrPersona: $('hr-persona'),
+        hrError: $('hr-error'), hrCancel: $('hr-cancel'), hrSubmit: $('hr-submit'),
+        botMask: $('bot-mask'), botAvatar: $('bot-avatar'), botTitle: $('bot-title'), botRole: $('bot-role'),
+        botModel: $('bot-model'), botCaps: $('bot-caps'), botPersona: $('bot-persona'), botUsage: $('bot-usage'),
+        botError: $('bot-error'), botCancel: $('bot-cancel'), botSave: $('bot-save'),
+        toast: $('toast')
+      };
+
+      var SOURCE_LABELS = { user: 'source.user', maige: 'source.maige', tool: 'source.tool' };
+      var KIND_LABELS = { image: 'kind.image', video: 'kind.video', audio: 'kind.audio', file: 'kind.file' };
+      function sourceLabel(k) { return t(SOURCE_LABELS[k] || k); }
+      function kindLabel(k) { return t(KIND_LABELS[k] || k); }
+      var COMMANDS = {
+        zh: [
+          { key: '锐评 + 话题', desc: '联网搜索后三段式锐评' },
+          { key: '晨报', desc: '5 条毒舌晨报' },
+          { key: '整活 + 内容', desc: '进入创作流程' },
+          { key: '悲歌', desc: '把吐槽编成歌词' },
+          { key: '播客 + 材料', desc: '生成双人对话音频' },
+          { key: '总结', desc: '总结会话或文件' },
+          { key: '正经 / 别闹', desc: '切换正经模式' },
+          { key: '记住：…', desc: '写入长期记忆' }
+        ],
+        en: [
+          { key: '锐评 + topic', desc: 'Web search, then a three-part hot take' },
+          { key: '晨报', desc: '5 snarky morning headlines' },
+          { key: '整活 + content', desc: 'Enter creation mode' },
+          { key: '悲歌', desc: 'Turn a rant into song lyrics' },
+          { key: '播客 + material', desc: 'Generate a two-host podcast' },
+          { key: '总结', desc: 'Summarize the session or a file' },
+          { key: '正经 / 别闹', desc: 'Switch to serious mode' },
+          { key: '记住：…', desc: 'Write to long-term memory' }
+        ]
+      };
+
+      var pendingDeleteId = null;
+      var editingId = null;
+      var detailItem = null;
+      var memoriesCache = [];
+      var toastTimer = null;
+      // ---------- 聊天状态 ----------
+      var convs = [];              // 会话列表（/api/chat/conversations）
+      var currentConv = 'chief';   // 默认和主管单聊（DS Bot 范式）
+      var chatLastId = 0;
+      var chatMembers = [];
+      var chatPollTimer = null;
+      var chatSearchTerm = '';
+      var llmReady = true;
+      var MEMBER_COLORS = ['var(--mcode-accent)', 'var(--mcode-success)', 'var(--mcode-warning)', 'var(--mcode-danger)', 'var(--mcode-text-muted)', 'var(--mcode-text-subtle)'];
+
+      function showToast(text) {
+        els.toast.textContent = text;
+        els.toast.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { els.toast.classList.remove('show'); }, 2200);
+      }
+
+      function switchTab(which) {
+        Object.keys(els.tabs).forEach(function (key) {
+          els.tabs[key].setAttribute('aria-selected', String(key === which));
+          els.panels[key].hidden = key !== which;
+        });
+        if (which === 'overview') loadOverview();
+        if (which === 'team') loadTeam();
+        if (which === 'memories') loadMemories();
+        if (which === 'outputs') loadOutputs();
+        if (which === 'caps') loadCaps();
+        if (which === 'tasks') loadTasks();
+        if (which === 'schedules') loadSchedules();
+        if (which === 'settings') loadSettings();
+      }
+
+      function setStatus(el, kind, title, desc) {
+        el.innerHTML = '';
+        if (!kind) return;
+        var block = document.createElement('div');
+        block.className = 'state-block';
+        if (kind === 'error') block.setAttribute('role', 'alert');
+        if (kind === 'loading') {
+          var sp = document.createElement('div');
+          sp.className = 'spinner';
+          block.appendChild(sp);
+        }
+        var tt = document.createElement('div');
+        tt.className = 'state-title';
+        tt.textContent = title;
+        block.appendChild(tt);
+        if (desc) {
+          var d = document.createElement('div');
+          d.className = 'state-desc';
+          d.textContent = desc;
+          block.appendChild(d);
+        }
+        el.appendChild(block);
+      }
+
+      function fmtDate(iso) { return iso ? iso.slice(0, 10) : '—'; }
+      function fmtTime(iso) { return iso ? iso.slice(11, 16) : ''; }
+      function fmtSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+      }
+      function api(path, options) {
+        return fetch(path, options).then(function (r) {
+          if (!r.ok) throw new Error('request_failed');
+          return r.json();
+        });
+      }
+
+      // ---------- 头像（icons v1，失败回退首字母） ----------
+      function avatarEl(key, name, size) {
+        var wrap = document.createElement('span');
+        wrap.className = 'avatar';
+        if (size) { wrap.style.width = size + 'px'; wrap.style.height = size + 'px'; }
+        var img = document.createElement('img');
+        img.src = '/api/avatar?key=' + encodeURIComponent(key);
+        img.alt = name || key;
+        img.loading = 'lazy';
+        img.onerror = function () {
+          img.remove();
+          wrap.textContent = (name || key || '?').trim().slice(0, 1);
+        };
+        wrap.appendChild(img);
+        return wrap;
+      }
+
+      // ---------- 会话列表（DS Bot：Chief 置顶 → 群聊 → 成员） ----------
+      function loadConvs() {
+        return api('/api/chat/conversations').then(function (data) {
+          convs = data.items || [];
+          llmReady = data.llmReady !== false;
+          renderConvList();
+          updateChatHead();
+        }).catch(function () { /* 下轮重试 */ });
+      }
+
+      function convOf(id) {
+        return convs.find(function (c) { return c.id === id; }) || null;
+      }
+
+      function renderConvList() {
+        els.convList.innerHTML = '';
+        var membersExist = false;
+        convs.forEach(function (c) {
+          if (c.kind === 'member' && !membersExist) {
+            membersExist = true;
+            var sect = document.createElement('div');
+            sect.className = 'side-sect';
+            sect.textContent = t('side.members');
+            els.convList.appendChild(sect);
+          }
+          var btn = document.createElement('button');
+          btn.className = 'conv' + (c.id === currentConv ? ' active' : '');
+          btn.setAttribute('role', 'option');
+          btn.setAttribute('aria-selected', String(c.id === currentConv));
+          btn.dataset.conv = c.id;
+          var avatarKey = c.kind === 'group' ? 'maige' : c.key;
+          var convAvatar = avatarEl(avatarKey, c.name, 38);
+          if (c.typing) convAvatar.classList.add('live');
+          btn.appendChild(convAvatar);
+          var meta = document.createElement('span');
+          meta.className = 'conv-meta';
+          var name = document.createElement('span');
+          name.className = 'conv-name';
+          name.appendChild(document.createTextNode(c.name));
+          if (c.kind === 'chief') {
+            var badge = document.createElement('span');
+            badge.className = 'conv-badge';
+            badge.textContent = 'Chief';
+            name.appendChild(badge);
+          }
+          meta.appendChild(name);
+          var sub = document.createElement('span');
+          sub.className = 'conv-sub';
+          if (c.preview) {
+            sub.textContent = (c.preview.name ? c.preview.name + '：' : '') + c.preview.text;
+          } else {
+            sub.textContent = c.kind === 'chief' ? t('role.chief') : c.kind === 'group' ? t('role.group') : (c.role || '');
+          }
+          meta.appendChild(sub);
+          btn.appendChild(meta);
+          if (c.preview && c.preview.at) {
+            var time = document.createElement('span');
+            time.className = 'conv-time';
+            time.textContent = fmtTime(c.preview.at);
+            btn.appendChild(time);
+          }
+          btn.addEventListener('click', function () { selectConv(c.id); });
+          els.convList.appendChild(btn);
+        });
+      }
+
+      function selectConv(id) {
+        if (currentConv === id) return;
+        currentConv = id;
+        chatLastId = 0;
+        chatSearchTerm = '';
+        els.chatSearch.value = '';
+        renderConvList();
+        updateChatHead();
+        pollChat(true);
+      }
+
+      function updateChatHead() {
+        var c = convOf(currentConv);
+        els.chatPeer.innerHTML = '';
+        if (!c) return;
+        var avatarKey = c.kind === 'group' ? 'maige' : c.key;
+        els.chatPeer.appendChild(avatarEl(avatarKey, c.name, 38));
+        var wrap = document.createElement('div');
+        var name = document.createElement('div');
+        name.className = 'chat-peer-name';
+        name.textContent = c.name;
+        wrap.appendChild(name);
+        var role = document.createElement('div');
+        role.className = 'chat-peer-role';
+        role.textContent = c.kind === 'chief' ? t('role.chief') : c.kind === 'group' ? t('role.group') : (c.role || '');
+        wrap.appendChild(role);
+        els.chatPeer.appendChild(wrap);
+        els.chatInput.placeholder = c.kind === 'chief' ? t('chat.ph.chief')
+          : c.kind === 'group' ? t('chat.ph.group')
+          : t('chat.ph.member', { name: c.name });
+        // 状态行：在线 · 模型 · 能力包数（群聊显示人数）
+        if (c.kind === 'group') return;
+        api('/api/bot?key=' + encodeURIComponent(c.key)).then(function (bot) {
+          if (!convOf(currentConv) || convOf(currentConv).key !== c.key) return;
+          var status = document.createElement('div');
+          status.className = 'chat-peer-status';
+          var dot = document.createElement('span');
+          dot.className = 'status-dot';
+          status.appendChild(dot);
+          status.appendChild(document.createTextNode(
+            t('status.online') + ' · ' + bot.model + (bot.capabilities.length ? ' · ' + t('status.caps', { n: bot.capabilities.length }) : '')
+          ));
+          role.replaceWith(status);
+        }).catch(function () { /* 状态行失败不影响聊天 */ });
+      }
+
+      // ---------- 聊天 ----------
+      var lastRenderMeta = null; // 上一条已渲染消息（用于分组与时间分隔线）
+
+      /** 极简行内渲染：先转义，再 **粗体** / `代码`（防注入，不支持完整 Markdown） */
+      function richText(el, text) {
+        var esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        esc = esc.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        esc = esc.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
+        el.innerHTML = esc;
+      }
+
+      function fmtDivider(iso) {
+        var d = new Date(iso);
+        var now = new Date();
+        var hm = iso.slice(11, 16);
+        if (d.toDateString() === now.toDateString()) return t('divider.today') + ' ' + hm;
+        if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + t('divider.date.md', { d: d.getDate() }) + ' ' + hm;
+        return iso.slice(0, 10) + ' ' + hm;
+      }
+
+      function maybeDivider(m) {
+        var need = !lastRenderMeta
+          || (new Date(m.at) - new Date(lastRenderMeta.at)) > 30 * 60000
+          || new Date(m.at).toDateString() !== new Date(lastRenderMeta.at).toDateString();
+        if (!need) return null;
+        var div = document.createElement('div');
+        div.className = 'time-divider';
+        div.textContent = fmtDivider(m.at);
+        return div;
+      }
+
+      function renderMessage(m) {
+        var grouped = lastRenderMeta
+          && m.kind === 'agent' && lastRenderMeta.kind === 'agent'
+          && m.sender === lastRenderMeta.sender
+          && (new Date(m.at) - new Date(lastRenderMeta.at)) < 5 * 60000;
+        lastRenderMeta = { sender: m.sender, kind: m.kind, at: m.at };
+        if (m.kind === 'system') {
+          var sys = document.createElement('div');
+          sys.className = 'msg system';
+          var bubble = document.createElement('div');
+          bubble.className = 'bubble' + (m.name === '工具' ? ' toolish' : '');
+          bubble.textContent = m.text;
+          sys.appendChild(bubble);
+          return sys;
+        }
+        // 生成物消息（图/音/视频内联展示）：不带文字气泡，直接出媒体
+        if (m.kind === 'media' && m.media && m.media.url) {
+          var md = document.createElement('div');
+          md.className = 'msg media';
+          var wrap = document.createElement('div');
+          wrap.className = 'media-wrap';
+          if (m.media.kind === 'image') {
+            var gimg = document.createElement('img');
+            gimg.src = m.media.url; gimg.alt = m.media.name || ''; gimg.className = 'media-img';
+            wrap.appendChild(gimg);
+          } else if (m.media.kind === 'audio') {
+            var aud = document.createElement('audio');
+            aud.src = m.media.url; aud.controls = true; aud.className = 'media-audio';
+            wrap.appendChild(aud);
+          } else if (m.media.kind === 'video') {
+            var vid = document.createElement('video');
+            vid.src = m.media.url; vid.controls = true; vid.className = 'media-video';
+            wrap.appendChild(vid);
+          }
+          md.appendChild(wrap);
+          return md;
+        }
+        // 结构化结果卡片（搜索结果/作品内容/整活单——直接出实物，不止一句话）
+        if (m.kind === 'card' && m.card) {
+          var cd = document.createElement('div');
+          cd.className = 'msg card';
+          var cw = document.createElement('div');
+          cw.className = 'card-wrap';
+          if (m.card.title) {
+            var ct = document.createElement('div');
+            ct.className = 'card-title';
+            ct.textContent = m.card.title;
+            cw.appendChild(ct);
+          }
+          var cb = document.createElement('div');
+          cb.className = 'card-body';
+          if (m.card.items && m.card.items.length) {
+            // 搜索/列表类：逐条渲染（可点链接）
+            m.card.items.forEach(function (it) {
+              var ci = document.createElement('div');
+              ci.className = 'card-item';
+              var cit = document.createElement('div');
+              cit.className = 'card-item-title';
+              if (it.url) {
+                var a = document.createElement('a');
+                a.href = it.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                a.textContent = it.title || it.url;
+                cit.appendChild(a);
+              } else {
+                cit.textContent = it.title || '';
+              }
+              ci.appendChild(cit);
+              if (it.snippet) {
+                var cs = document.createElement('div');
+                cs.className = 'card-item-snippet';
+                cs.textContent = it.snippet;
+                ci.appendChild(cs);
+              }
+              cw.appendChild(ci);
+            });
+          } else if (m.card.body) {
+            // 作品/单子类：正文
+            cb.textContent = m.card.body;
+            cw.appendChild(cb);
+          }
+          if (m.card.footer) {
+            var cft = document.createElement('div');
+            cft.className = 'card-item-snippet';
+            cft.style.marginTop = '8px';
+            cft.textContent = m.card.footer;
+            cw.appendChild(cft);
+          }
+          cd.appendChild(cw);
+          return cd;
+        }
+        var div = document.createElement('div');
+        div.className = 'msg ' + (m.kind === 'user' ? 'user' : 'agent') + (m.sender === 'maige' ? ' chief' : '') + (grouped ? ' grouped' : '');
+        if (m.kind === 'agent') div.appendChild(avatarEl(m.sender, m.name, 30));
+        var col = document.createElement('div');
+        col.className = 'msg-col';
+        if (m.kind === 'agent' && !grouped) {
+          var name = document.createElement('span');
+          name.className = 'msg-name';
+          name.textContent = m.name;
+          col.appendChild(name);
+        }
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        richText(bubble, m.text);
+        if (m.image) {
+          var im = document.createElement('img');
+          im.src = '/api/chat/image?id=' + encodeURIComponent(m.image);
+          im.alt = '';
+          im.className = 'msg-img';
+          bubble.insertBefore(im, bubble.firstChild);
+        }
+        col.appendChild(bubble);
+        if (m.usage && m.usage.total_tokens) {
+          var usage = document.createElement('span');
+          usage.className = 'msg-usage';
+          usage.textContent = m.usage.total_tokens + ' tok';
+          col.appendChild(usage);
+        }
+        div.appendChild(col);
+        return div;
+      }
+
+      function emptyChatState() {
+        var c = convOf(currentConv);
+        var box = document.createElement('div');
+        box.className = 'chat-empty';
+        box.appendChild(avatarEl(c && c.kind === 'member' ? c.key : 'maige', c ? c.name : '麦格', 56));
+        var title = document.createElement('div');
+        title.className = 'state-title';
+        var desc = document.createElement('div');
+        desc.className = 'state-desc';
+        if (!c || c.kind === 'chief') {
+          title.textContent = t('chat.empty.chief');
+          desc.textContent = t('chat.empty.chief.desc');
+        } else if (c.kind === 'group') {
+          title.textContent = t('chat.empty');
+          desc.textContent = t('chat.empty.desc');
+        } else {
+          title.textContent = t('chat.empty.member', { name: c.name });
+          desc.textContent = t('chat.empty.member.desc');
+        }
+        box.appendChild(title);
+        box.appendChild(desc);
+        return box;
+      }
+
+      var pollTick = 0;
+      function pollChat(full) {
+        // 搜索模式下暂停增量轮询，全量过滤展示
+        var base = '/api/chat/messages?conv=' + encodeURIComponent(currentConv);
+        var url = (full || chatSearchTerm) ? base : base + '&after=' + chatLastId;
+        return api(url).then(function (data) {
+          if (full) {
+            els.chatMessages.innerHTML = '';
+            chatLastId = 0;
+            lastRenderMeta = null;
+          }
+          if (data.llmReady === false) {
+            if (!els.chatMessages.children.length) {
+              els.chatMessages.innerHTML = '';
+              var nr = document.createElement('div');
+              nr.className = 'chat-empty';
+              var st = document.createElement('div'); st.className = 'state-title'; st.textContent = t('chat.notReady');
+              var sd = document.createElement('div'); sd.className = 'state-desc'; sd.textContent = t('chat.notReady.desc');
+              nr.appendChild(st); nr.appendChild(sd);
+              els.chatMessages.appendChild(nr);
+            }
+            els.chatInput.disabled = true;
+            els.chatSend.disabled = true;
+            return;
+          }
+          els.chatInput.disabled = false;
+          els.chatSend.disabled = false;
+          if (chatSearchTerm) {
+            var term = chatSearchTerm.toLowerCase();
+            var hits = data.messages.filter(function (m) {
+              return m.text.toLowerCase().includes(term) || (m.name || '').toLowerCase().includes(term);
+            });
+            els.chatMessages.innerHTML = '';
+            lastRenderMeta = null;
+            if (!hits.length) {
+              var nh = document.createElement('div');
+              nh.className = 'chat-empty';
+              var st2 = document.createElement('div'); st2.className = 'state-title'; st2.textContent = t('search.noHit', { term: chatSearchTerm });
+              nh.appendChild(st2);
+              els.chatMessages.appendChild(nh);
+            } else {
+              hits.forEach(function (m) { els.chatMessages.appendChild(renderMessage(m)); });
+            }
+            return;
+          }
+          if (data.messages.length) {
+            var empty = els.chatMessages.querySelector('.chat-empty');
+            if (empty) empty.remove();
+            var nearBottom = els.chatMessages.scrollTop + els.chatMessages.clientHeight >= els.chatMessages.scrollHeight - 60;
+            data.messages.forEach(function (m) {
+              var divider = maybeDivider(m);
+              if (divider) els.chatMessages.appendChild(divider);
+              els.chatMessages.appendChild(renderMessage(m));
+              chatLastId = Math.max(chatLastId, m.id);
+            });
+            if (full || nearBottom) els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+            loadConvs(); // 有新消息顺手刷新侧栏预览
+          } else if (full && !data.messages.length) {
+            els.chatMessages.innerHTML = '';
+            els.chatMessages.appendChild(emptyChatState());
+          }
+          // 输入中：三点动画 + 头部头像光圈
+          var headAvatar = els.chatPeer.querySelector('.avatar');
+          if (data.typing) {
+            var speaker = chatMembers.find(function (m) { return m.key === data.typing; });
+            els.chatTyping.innerHTML = '';
+            var dots = document.createElement('span');
+            dots.className = 'typing-dots';
+            dots.appendChild(document.createElement('i'));
+            dots.appendChild(document.createElement('i'));
+            dots.appendChild(document.createElement('i'));
+            els.chatTyping.appendChild(dots);
+            els.chatTyping.appendChild(document.createTextNode((speaker ? speaker.displayName : data.typing) + t('chat.typing')));
+            els.chatTyping.hidden = false;
+            if (headAvatar) headAvatar.classList.add('live');
+          } else {
+            els.chatTyping.hidden = true;
+            if (headAvatar) headAvatar.classList.remove('live');
+          }
+          // 流式草稿：实时渲染（不碰 lastRenderMeta——草稿不是真消息）
+          var oldDraft = els.chatMessages.querySelector('.msg.draft');
+          if (oldDraft) oldDraft.remove();
+          if (data.draft && data.draft.text) {
+            var savedMeta = lastRenderMeta;
+            var dEl = renderMessage({ kind: 'agent', sender: data.draft.sender, name: data.draft.name, text: data.draft.text, at: new Date().toISOString() });
+            lastRenderMeta = savedMeta;
+            dEl.classList.add('draft');
+            els.chatMessages.appendChild(dEl);
+            var dn = els.chatMessages.scrollTop + els.chatMessages.clientHeight >= els.chatMessages.scrollHeight - 120;
+            if (dn) els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+          }
+          // 每 3 次轮询刷新一次会话列表（侧栏预览 + 各会话的光圈状态）
+          if (++pollTick % 3 === 0) loadConvs();
+          return data;
+        }).catch(function () { return null; /* 轮询失败静默，下轮重试 */ });
+      }
+
+      // 自适应轮询：打字/流式中 700ms，空闲 2000ms
+      function pollLoop() {
+        Promise.resolve(pollChat(false)).then(function (data) {
+          var fast = data && (data.typing || (data.draft && data.draft.text));
+          chatPollTimer = setTimeout(pollLoop, fast ? 700 : 2000);
+        });
+      }
+
+      // ---------- 附图 ----------
+      var pendingImage = null;
+      function setPendingImage(dataUrl) {
+        pendingImage = dataUrl;
+        els.attachPreview.innerHTML = '';
+        els.attachPreview.hidden = !dataUrl;
+        if (!dataUrl) return;
+        var chip = document.createElement('span');
+        chip.className = 'attach-chip';
+        var im = document.createElement('img');
+        im.src = dataUrl;
+        im.alt = '';
+        chip.appendChild(im);
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.textContent = '×';
+        rm.setAttribute('aria-label', t('chat.attach.remove'));
+        rm.addEventListener('click', function () { setPendingImage(null); });
+        chip.appendChild(rm);
+        els.attachPreview.appendChild(chip);
+      }
+      function readImageFile(file) {
+        if (!file || !/^image\//.test(file.type)) return;
+        var reader = new FileReader();
+        reader.onload = function () { setPendingImage(String(reader.result)); };
+        reader.readAsDataURL(file);
+      }
+
+      // ---------- 发送 ----------
+      function sendChat() {
+        var text = els.chatInput.value.trim();
+        if (!text && !pendingImage) return;
+        els.chatInput.value = '';
+        els.chatSend.disabled = true;
+        var payload = { conv: currentConv, text: text };
+        if (pendingImage) payload.image = pendingImage;
+        setPendingImage(null);
+        api('/api/chat/send', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function () {
+          pollChat(false);
+        }).catch(function () {
+          showToast(t('toast.fail.send'));
+        }).finally(function () {
+          els.chatSend.disabled = false;
+          els.chatInput.focus();
+        });
+      }
+
+      function clearChat() {
+        if (!window.confirm(t('chat.clear.confirm'))) return;
+        api('/api/chat/clear', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ conv: currentConv })
+        }).then(function () {
+          chatLastId = 0;
+          pollChat(true);
+          loadConvs();
+          showToast(t('toast.cleared'));
+        }).catch(function () { showToast(t('toast.fail.clear')); });
+      }
+
+      // ---------- bot 详情（模型 / 能力包 / 用量） ----------
+      var botEditingKey = null;
+      function openBot(key) {
+        botEditingKey = key;
+        els.botError.textContent = '';
+        els.botMask.hidden = false;
+        els.botTitle.textContent = key;
+        els.botRole.textContent = '';
+        els.botModel.innerHTML = '';
+        els.botCaps.innerHTML = '';
+        els.botPersona.textContent = '';
+        els.botUsage.textContent = '';
+        Promise.all([
+          api('/api/bot?key=' + encodeURIComponent(key)),
+          api('/api/models'),
+          api('/api/capabilities')
+        ]).then(function (rs) {
+          if (botEditingKey !== key) return; // 已切换/关闭
+          var bot = rs[0], models = rs[1], caps = rs[2];
+          els.botAvatar.innerHTML = '';
+          els.botAvatar.appendChild(avatarEl(bot.key, bot.displayName, 48));
+          els.botTitle.textContent = bot.displayName + (bot.key === 'maige' ? ' · Chief' : '');
+          els.botRole.textContent = bot.role || bot.key;
+          // 模型下拉：默认 + 可用聊天模型
+          var opt0 = document.createElement('option');
+          opt0.value = '';
+          opt0.textContent = t('bot.defaultModel', { model: models['default'] });
+          els.botModel.appendChild(opt0);
+          (models.models || []).forEach(function (m) {
+            var opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            els.botModel.appendChild(opt);
+          });
+          els.botModel.value = bot.modelOverride || '';
+          // 能力包勾选
+          if (!caps.items.length) {
+            els.botCaps.textContent = t('bot.caps.empty');
+            els.botCaps.style.color = 'var(--mcode-text-subtle)';
+            els.botCaps.style.fontSize = '12px';
+          } else {
+            var attached = bot.capabilities.map(function (c) { return c.id; });
+            caps.items.forEach(function (p) {
+              var label = document.createElement('label');
+              label.className = 'cap-check';
+              var cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.value = p.id;
+              cb.checked = attached.includes(p.id);
+              label.appendChild(cb);
+              var wrap = document.createElement('span');
+              var nm = document.createElement('div');
+              nm.className = 'cap-name';
+              nm.textContent = p.name;
+              wrap.appendChild(nm);
+              if (p.description) {
+                var ds = document.createElement('div');
+                ds.className = 'cap-desc';
+                ds.textContent = p.description;
+                wrap.appendChild(ds);
+              }
+              label.appendChild(wrap);
+              els.botCaps.appendChild(label);
+            });
+          }
+          els.botPersona.textContent = bot.persona || '—';
+          els.botUsage.textContent = bot.usage.calls
+            ? t('usage.fmt', { calls: bot.usage.calls, tokens: bot.usage.tokens })
+            : t('bot.usage.none');
+        }).catch(function () {
+          els.botError.textContent = t('toast.fail.bot');
+        });
+      }
+
+      function closeBot() { botEditingKey = null; els.botMask.hidden = true; }
+
+      function saveBot() {
+        var key = botEditingKey;
+        if (!key) { closeBot(); return; }
+        var checked = [];
+        els.botCaps.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+          if (cb.checked) checked.push(cb.value);
+        });
+        els.botSave.disabled = true;
+        api('/api/bot', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ key: key, model: els.botModel.value || null, capabilities: checked })
+        }).then(function () {
+          showToast(t('toast.saved'));
+          closeBot();
+          loadConvs();
+        }).catch(function () {
+          els.botError.textContent = t('toast.fail.save');
+        }).finally(function () {
+          els.botSave.disabled = false;
+        });
+      }
+
+      // ---------- 能力库 ----------
+      function loadCaps() {
+        els.capsList.innerHTML = '';
+        setStatus(els.capsStatus, 'loading', t('loading.caps'));
+        Promise.all([api('/api/capabilities'), api('/api/chat/members')]).then(function (rs) {
+          var caps = rs[0];
+          var members = rs[1].members || [];
+          var nameOf = {};
+          members.forEach(function (m) { nameOf[m.key] = m.displayName; });
+          els.capsDir.textContent = caps.dir;
+          els.capsList.innerHTML = '';
+          if (!caps.items.length) {
+            setStatus(els.capsStatus, 'empty', t('empty.caps'), t('bot.caps.empty'));
+            return;
+          }
+          setStatus(els.capsStatus, null);
+          caps.items.forEach(function (p) {
+            var li = document.createElement('li');
+            li.className = 'cap-card';
+            var head = document.createElement('div');
+            head.className = 'memory-head';
+            var nm = document.createElement('span');
+            nm.className = 'memory-name';
+            nm.textContent = p.name;
+            head.appendChild(nm);
+            var idBadge = document.createElement('span');
+            idBadge.className = 'badge';
+            idBadge.textContent = p.id;
+            head.appendChild(idBadge);
+            li.appendChild(head);
+            if (p.description) {
+              var ds = document.createElement('p');
+              ds.className = 'memory-desc';
+              ds.textContent = p.description;
+              li.appendChild(ds);
+            }
+            var att = document.createElement('div');
+            att.className = 'cap-attached';
+            att.textContent = t('caps.attached');
+            if (!p.attachedTo.length) {
+              att.appendChild(document.createTextNode(t('caps.none')));
+            } else {
+              p.attachedTo.forEach(function (k) {
+                var b = document.createElement('span');
+                b.className = 'badge badge-user';
+                b.textContent = nameOf[k] || k;
+                att.appendChild(b);
+              });
+            }
+            li.appendChild(att);
+            els.capsList.appendChild(li);
+          });
+        }).catch(function () {
+          setStatus(els.capsStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      // ---------- 管理台开关 ----------
+      function openAdmin() {
+        els.adminView.hidden = false;
+        els.chatView.hidden = true;
+        var active = Object.keys(els.tabs).find(function (k) { return els.tabs[k].getAttribute('aria-selected') === 'true'; }) || 'overview';
+        switchTab(active);
+      }
+      function closeAdminView() {
+        els.adminView.hidden = true;
+        els.chatView.hidden = false;
+        pollChat(true);
+      }
+
+      // ---------- 概览 ----------
+      function loadOverview() {
+        els.overviewContent.hidden = true;
+        setStatus(els.overviewStatus, 'loading', t('loading.overview'));
+        Promise.all([api('/api/overview'), api('/api/info'), api('/api/chat/usage')]).then(function (results) {
+          var ov = results[0];
+          var info = results[1];
+          var usage = results[2];
+          setStatus(els.overviewStatus, null);
+          els.overviewContent.hidden = false;
+          els.kpiMemory.textContent = ov.memoryCount;
+          els.kpiOutputs.textContent = ov.outputsCount;
+          els.kpiSensitive.textContent = ov.sensitiveCount;
+          els.kpiVersion.textContent = info.maigeVersion || '未安装';
+          els.kpiTokens.textContent = usage.totalTokens >= 10000 ? (usage.totalTokens / 1000).toFixed(1) + 'k' : String(usage.totalTokens);
+          renderUsageChart(usage.byDay || []);
+          renderUsageRank(usage.byMember || []);
+
+          els.recentMemories.innerHTML = '';
+          if (!ov.recentMemories.length) {
+            renderEmptyMini(els.recentMemories, t('empty.recentMemories'));
+          } else {
+            ov.recentMemories.forEach(function (m) {
+              var li = document.createElement('li');
+              li.className = 'mini-item';
+              var badge = document.createElement('span');
+              badge.className = 'badge badge-' + m.source;
+              badge.textContent = sourceLabel(m.source);
+              li.appendChild(badge);
+              var name = document.createElement('span');
+              name.textContent = m.name;
+              li.appendChild(name);
+              var meta = document.createElement('span');
+              meta.className = 'meta';
+              meta.textContent = fmtDate(m.date);
+              li.appendChild(meta);
+              els.recentMemories.appendChild(li);
+            });
+          }
+
+          els.recentOutputs.innerHTML = '';
+          if (!ov.recentOutputs.length) {
+            renderEmptyMini(els.recentOutputs, t('empty.recentOutputs'));
+          } else {
+            ov.recentOutputs.forEach(function (o) {
+              var li = document.createElement('li');
+              li.className = 'mini-item';
+              var kind = document.createElement('span');
+              kind.className = 'badge';
+              kind.textContent = kindLabel(o.kind);
+              li.appendChild(kind);
+              var name = document.createElement('span');
+              name.textContent = o.name;
+              li.appendChild(name);
+              var meta = document.createElement('span');
+              meta.className = 'meta';
+              meta.textContent = fmtSize(o.size) + ' · ' + fmtDate(o.mtime);
+              li.appendChild(meta);
+              els.recentOutputs.appendChild(li);
+            });
+          }
+
+          els.commandGrid.innerHTML = '';
+          (COMMANDS[lang] || COMMANDS.zh).forEach(function (c) {
+            var card = document.createElement('div');
+            card.className = 'command-card';
+            var k = document.createElement('div');
+            k.className = 'command-key';
+            k.textContent = c.key;
+            card.appendChild(k);
+            var d = document.createElement('div');
+            d.className = 'command-desc';
+            d.textContent = c.desc;
+            card.appendChild(d);
+            els.commandGrid.appendChild(card);
+          });
+        }).catch(function () {
+          setStatus(els.overviewStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      function renderUsageChart(byDay) {
+        var svg = els.usageChart;
+        svg.innerHTML = '';
+        els.usageLegend.innerHTML = '';
+        var W = 640, H = 140, pad = 8;
+        svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+        var memberKeys = [];
+        byDay.forEach(function (d) { Object.keys(d.byMember || {}).forEach(function (k) { if (!memberKeys.includes(k)) memberKeys.push(k); }); });
+        if (!memberKeys.length) {
+          var empty = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          empty.setAttribute('x', W / 2); empty.setAttribute('y', H / 2);
+          empty.setAttribute('text-anchor', 'middle'); empty.setAttribute('font-size', '12');
+          empty.setAttribute('fill', 'var(--mcode-text-subtle)');
+          empty.textContent = t('empty.usage');
+          svg.appendChild(empty);
+          return;
+        }
+        var max = Math.max.apply(null, byDay.map(function (d) { return d.total; }).concat([1]));
+        var colorOf = function (k) { return MEMBER_COLORS[memberKeys.indexOf(k) % MEMBER_COLORS.length]; };
+        var slotW = (W - pad * 2) / byDay.length;
+        var bw = slotW * 0.6;
+        byDay.forEach(function (d, i) {
+          var x = pad + i * slotW + (slotW - bw) / 2;
+          var y = H - 18;
+          memberKeys.forEach(function (k) {
+            var v = (d.byMember || {})[k] || 0;
+            if (!v) return;
+            var h = Math.max(2, v / max * (H - 40));
+            var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', x); rect.setAttribute('y', y - h);
+            rect.setAttribute('width', bw); rect.setAttribute('height', h);
+            rect.setAttribute('fill', colorOf(k)); rect.setAttribute('rx', 2);
+            var title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            title.textContent = d.date + ' · ' + k + '：' + v + ' tok';
+            rect.appendChild(title);
+            svg.appendChild(rect);
+            y -= h;
+          });
+          if (i % 3 === 0 || i === byDay.length - 1) {
+            var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', x); label.setAttribute('y', H - 4);
+            label.setAttribute('font-size', '10'); label.setAttribute('fill', 'var(--mcode-text-subtle)');
+            label.textContent = d.date.slice(5);
+            svg.appendChild(label);
+          }
+        });
+        memberKeys.forEach(function (k) {
+          var lg = document.createElement('span');
+          lg.className = 'lg';
+          var sw = document.createElement('span');
+          sw.className = 'sw';
+          sw.style.background = colorOf(k);
+          lg.appendChild(sw);
+          lg.appendChild(document.createTextNode(k));
+          els.usageLegend.appendChild(lg);
+        });
+      }
+
+      function renderUsageRank(byMember) {
+        els.usageRank.innerHTML = '';
+        if (!byMember.length) {
+          renderEmptyMini(els.usageRank, t('empty.usage'));
+          return;
+        }
+        var max = Math.max.apply(null, byMember.map(function (m) { return m.tokens; }).concat([1]));
+        byMember.forEach(function (m) {
+          var li = document.createElement('li');
+          li.className = 'mini-item';
+          var name = document.createElement('span');
+          name.textContent = m.name;
+          name.style.minWidth = '80px';
+          li.appendChild(name);
+          var barWrap = document.createElement('span');
+          barWrap.className = 'rank-bar-wrap';
+          var bar = document.createElement('span');
+          bar.className = 'rank-bar';
+          bar.style.width = Math.max(2, m.tokens / max * 100) + '%';
+          barWrap.appendChild(bar);
+          li.appendChild(barWrap);
+          var val = document.createElement('span');
+          val.className = 'meta';
+          val.textContent = m.tokens >= 10000 ? (m.tokens / 1000).toFixed(1) + 'k tok' : m.tokens + ' tok';
+          li.appendChild(val);
+          els.usageRank.appendChild(li);
+        });
+      }
+
+      function renderEmptyMini(list, text) {
+        var li = document.createElement('li');
+        li.className = 'mini-item';
+        li.style.color = 'var(--mcode-text-subtle)';
+        li.textContent = text;
+        list.appendChild(li);
+      }
+
+      // ---------- 团队 ----------
+      function loadTeam() {
+        els.teamGrid.innerHTML = '';
+        setStatus(els.teamStatus, 'loading', t('loading.team'));
+        api('/api/team').then(function (data) {
+          els.teamDir.textContent = t('team.dirLabel') + data.agentsDir;
+          els.teamGrid.innerHTML = '';
+          renderPresets(data.members.map(function (m) { return m.key; }));
+          if (!data.members.length) {
+            setStatus(els.teamStatus, 'empty', t('empty.team'));
+            return;
+          }
+          setStatus(els.teamStatus, null);
+          data.members.forEach(function (m) {
+            var card = document.createElement('article');
+            card.className = 'member-card';
+            var head = document.createElement('div');
+            head.className = 'member-head';
+            head.appendChild(avatarEl(m.key, m.displayName, 36));
+            var name = document.createElement('span');
+            name.className = 'member-name';
+            name.textContent = m.displayName;
+            head.appendChild(name);
+            var key = document.createElement('span');
+            key.className = 'member-key';
+            key.textContent = m.key;
+            head.appendChild(key);
+            var status = document.createElement('span');
+            status.className = 'member-status ' + (m.status === 'ready' ? 'ready' : 'missing');
+            status.textContent = m.status === 'ready' ? t('status.ready') : t('status.missing');
+            head.appendChild(status);
+            var fire = document.createElement('button');
+            fire.className = 'btn btn-text btn-danger';
+            fire.textContent = t('team.fire');
+            fire.setAttribute('aria-label', t('team.fire') + ' ' + m.displayName);
+            fire.addEventListener('click', function (e) {
+              e.stopPropagation();
+              if (!window.confirm(t('team.fire.confirm', { name: m.displayName }))) return;
+              api('/api/team?key=' + encodeURIComponent(m.key), { method: 'DELETE' }).then(function () {
+                showToast(t('toast.deleted'));
+                loadTeam();
+                loadConvs();
+              }).catch(function () { showToast(t('toast.fail.delete')); });
+            });
+            head.appendChild(fire);
+            card.appendChild(head);
+            // 点卡片打开 bot 详情（DS Bot 式）
+            card.style.cursor = 'pointer';
+            card.setAttribute('tabindex', '0');
+            card.setAttribute('role', 'button');
+            card.setAttribute('aria-label', t('a11y.botDetail') + ' ' + m.displayName);
+            card.addEventListener('click', function () { openBot(m.key); });
+            card.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBot(m.key); } });
+            if (m.description) {
+              var role = document.createElement('div');
+              role.className = 'member-role';
+              role.textContent = m.description;
+              card.appendChild(role);
+            }
+            if (m.persona) {
+              var persona = document.createElement('div');
+              persona.className = 'member-persona';
+              persona.textContent = m.persona;
+              card.appendChild(persona);
+            }
+            els.teamGrid.appendChild(card);
+          });
+        }).catch(function () {
+          setStatus(els.teamStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      // ---------- 记忆 ----------
+      function loadMemories() {
+        els.memoryList.innerHTML = '';
+        setStatus(els.memoriesStatus, 'loading', t('loading.memories'));
+        api('/api/memories').then(function (data) {
+          memoriesCache = data.items;
+          els.memoryDir.textContent = t('memory.dirLabel') + data.dir;
+          els.memoryList.innerHTML = '';
+          if (!data.items.length) {
+            setStatus(els.memoriesStatus, 'empty', data.dirExists ? t('empty.memories') : t('empty.memories.dir'),
+              t('empty.memories.desc'));
+            return;
+          }
+          setStatus(els.memoriesStatus, null);
+          data.items.forEach(function (item) {
+            els.memoryList.appendChild(renderMemoryCard(item));
+          });
+        }).catch(function () {
+          setStatus(els.memoriesStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      function renderMemoryCard(item) {
+        var li = document.createElement('li');
+        li.className = 'memory-card';
+        li.setAttribute('tabindex', '0');
+        li.setAttribute('role', 'button');
+        li.setAttribute('aria-label', t('a11y.viewMemory') + ' ' + item.name);
+
+        var head = document.createElement('div');
+        head.className = 'memory-head';
+        var src = document.createElement('span');
+        src.className = 'badge badge-' + item.source;
+        src.textContent = sourceLabel(item.source);
+        head.appendChild(src);
+        if (item.sensitive) {
+          var sen = document.createElement('span');
+          sen.className = 'badge badge-sensitive';
+          sen.textContent = t('badge.sensitive');
+          head.appendChild(sen);
+        }
+        var name = document.createElement('span');
+        name.className = 'memory-name';
+        name.textContent = item.name;
+        head.appendChild(name);
+        var date = document.createElement('span');
+        date.className = 'memory-date';
+        date.textContent = fmtDate(item.date || item.mtime);
+        head.appendChild(date);
+        var actions = document.createElement('span');
+        actions.className = 'memory-actions';
+        var del = document.createElement('button');
+        del.className = 'btn btn-text btn-danger';
+        del.textContent = t('btn.delete');
+        del.setAttribute('aria-label', t('a11y.deleteMemory') + ' ' + item.name);
+        del.addEventListener('click', function (e) { e.stopPropagation(); askDelete(item); });
+        actions.appendChild(del);
+        head.appendChild(actions);
+        li.appendChild(head);
+
+        if (item.description) {
+          var desc = document.createElement('p');
+          desc.className = 'memory-desc';
+          desc.textContent = item.description;
+          li.appendChild(desc);
+        }
+        if (item.body && item.body !== item.description) {
+          var ex = document.createElement('p');
+          ex.className = 'memory-excerpt';
+          ex.textContent = item.body;
+          li.appendChild(ex);
+        }
+
+        li.addEventListener('click', function () { openDetail(item); });
+        li.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(item); } });
+        return li;
+      }
+
+      // 详情
+      function openDetail(item) {
+        detailItem = item;
+        els.detailTitle.textContent = item.name;
+        els.detailMeta.textContent = sourceLabel(item.source) + ' · ' + fmtDate(item.date || item.mtime) + (item.sensitive ? ' · ' + t('badge.sensitive') : '');
+        els.detailBody.textContent = item.body || '（无正文）';
+        els.detailMask.hidden = false;
+        els.detailClose.focus();
+      }
+
+      // 表单（新增/编辑）
+      function openForm(item) {
+        editingId = item ? item.id : null;
+        els.formTitle.textContent = item ? t('form.edit') : t('form.add');
+        els.formName.value = item ? item.name : '';
+        els.formDesc.value = item ? item.description : '';
+        els.formSource.value = item ? item.source : 'user';
+        els.formSensitive.checked = item ? item.sensitive : false;
+        els.formBody.value = item ? item.body : '';
+        els.formError.textContent = '';
+        els.formMask.hidden = false;
+        els.formName.focus();
+      }
+
+      function submitForm() {
+        var name = els.formName.value.trim();
+        var body = els.formBody.value.trim();
+        if (!name) { els.formError.textContent = t('form.err.name'); return; }
+        if (!body) { els.formError.textContent = t('form.err.body'); return; }
+        els.formSubmit.disabled = true;
+        var payload = {
+          name: name,
+          description: els.formDesc.value.trim(),
+          source: els.formSource.value,
+          sensitive: els.formSensitive.checked,
+          body: body
+        };
+        var isEdit = !!editingId;
+        var req = isEdit
+          ? api('/api/memories?id=' + encodeURIComponent(editingId), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+          : api('/api/memories', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+        req.then(function () {
+          showToast(isEdit ? t('toast.saved') : t('toast.remembered'));
+          closeForm();
+          loadMemories();
+        }).catch(function () {
+          els.formError.textContent = t('toast.fail.save');
+        }).finally(function () {
+          els.formSubmit.disabled = false;
+        });
+      }
+
+      function closeForm() { editingId = null; els.formMask.hidden = true; }
+
+      // 删除
+      function askDelete(item) {
+        pendingDeleteId = item.id;
+        els.confirmText.textContent = '「' + item.name + '」——' + t('confirm.delete.text');
+        els.confirmMask.hidden = false;
+        els.confirmCancel.focus();
+      }
+      function closeConfirm() { pendingDeleteId = null; els.confirmMask.hidden = true; }
+      function doDelete() {
+        var id = pendingDeleteId;
+        if (!id) { closeConfirm(); return; }
+        els.confirmOk.disabled = true;
+        api('/api/memories?id=' + encodeURIComponent(id), { method: 'DELETE' }).then(function () {
+          showToast(t('toast.deleted'));
+          closeConfirm();
+          loadMemories();
+        }).catch(function () {
+          showToast(t('toast.fail.delete'));
+        }).finally(function () {
+          els.confirmOk.disabled = false;
+        });
+      }
+
+      // ---------- 作品库 ----------
+      function loadOutputs() {
+        els.gallery.innerHTML = '';
+        setStatus(els.outputsStatus, 'loading', t('loading.outputs'));
+        api('/api/outputs').then(function (data) {
+          els.outputsDirNote.textContent = t('outputs.dirLabel') + data.dir;
+          els.gallery.innerHTML = '';
+          if (!data.dirExists) {
+            setStatus(els.outputsStatus, 'empty', t('empty.outputs.dir'), t('empty.outputs.dir.desc'));
+            return;
+          }
+          if (!data.items.length) {
+            setStatus(els.outputsStatus, 'empty', t('empty.outputs'), t('empty.outputs.desc'));
+            return;
+          }
+          setStatus(els.outputsStatus, null);
+          data.items.forEach(function (item) {
+            els.gallery.appendChild(renderWorkCard(item));
+          });
+        }).catch(function () {
+          setStatus(els.outputsStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      function renderWorkCard(item) {
+        var card = document.createElement('button');
+        card.className = 'work-card';
+        card.setAttribute('aria-label', t('a11y.viewMemory') + ' ' + item.name);
+        var thumb = document.createElement('div');
+        thumb.className = 'work-thumb';
+        if (item.kind === 'image') {
+          var img = document.createElement('img');
+          img.src = item.url;
+          img.alt = item.name;
+          img.loading = 'lazy';
+          thumb.appendChild(img);
+        } else {
+          var label = document.createElement('span');
+          label.className = 'kind-label';
+          label.textContent = kindLabel(item.kind);
+          thumb.appendChild(label);
+        }
+        card.appendChild(thumb);
+        var body = document.createElement('div');
+        body.className = 'work-body';
+        var name = document.createElement('div');
+        name.className = 'work-name';
+        name.textContent = item.name;
+        body.appendChild(name);
+        var meta = document.createElement('div');
+        meta.className = 'work-meta';
+        meta.textContent = fmtSize(item.size) + ' · ' + fmtDate(item.mtime);
+        body.appendChild(meta);
+        card.appendChild(body);
+        card.addEventListener('click', function () { openPreview(item); });
+        return card;
+      }
+
+      function openPreview(item) {
+        els.previewTitle.textContent = item.name;
+        els.previewBody.innerHTML = '';
+        els.previewOpen.href = item.url;
+        if (item.kind === 'image') {
+          var img = document.createElement('img');
+          img.src = item.url;
+          img.alt = item.name;
+          els.previewBody.appendChild(img);
+        } else if (item.kind === 'video') {
+          var video = document.createElement('video');
+          video.src = item.url;
+          video.controls = true;
+          els.previewBody.appendChild(video);
+        } else if (item.kind === 'audio') {
+          var audio = document.createElement('audio');
+          audio.src = item.url;
+          audio.controls = true;
+          els.previewBody.appendChild(audio);
+        } else {
+          var p = document.createElement('p');
+          p.textContent = t('preview.noPreview');
+          els.previewBody.appendChild(p);
+        }
+        els.previewMask.hidden = false;
+        els.previewClose.focus();
+      }
+
+      function closePreview() {
+        els.previewBody.innerHTML = '';
+        els.previewMask.hidden = true;
+      }
+
+      // ---------- 整活单（任务状态机） ----------
+      var TASK_STATUS_ORDER = ['draft', 'ready', 'making', 'done', 'cancelled'];
+      var detailTask = null;
+
+      function loadTasks() {
+        els.tasksBoard.innerHTML = '';
+        setStatus(els.tasksStatus, 'loading', t('loading.tasks'));
+        api('/api/tasks').then(function (data) {
+          els.tasksDir.textContent = data.dir;
+          els.tasksBoard.innerHTML = '';
+          if (!data.items.length) {
+            setStatus(els.tasksStatus, 'empty', t('tasks.empty'), t('tasks.empty.desc'));
+            return;
+          }
+          setStatus(els.tasksStatus, null);
+          TASK_STATUS_ORDER.forEach(function (status) {
+            var group = data.items.filter(function (x) { return x.status === status; });
+            if (!group.length) return;
+            var g = document.createElement('div');
+            g.className = 'task-group';
+            var gt = document.createElement('h3');
+            gt.className = 'task-group-title';
+            gt.textContent = t('tstatus.' + status) + '（' + group.length + '）';
+            g.appendChild(gt);
+            group.forEach(function (task) { g.appendChild(renderTaskCard(task)); });
+            els.tasksBoard.appendChild(g);
+          });
+        }).catch(function () {
+          setStatus(els.tasksStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      function renderTaskCard(task) {
+        var card = document.createElement('article');
+        card.className = 'task-card';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('role', 'button');
+        var head = document.createElement('div');
+        head.className = 'memory-head';
+        var kind = document.createElement('span');
+        kind.className = 'badge';
+        kind.textContent = task.kind;
+        head.appendChild(kind);
+        var status = document.createElement('span');
+        status.className = 'badge badge-status-' + task.status;
+        status.textContent = t('tstatus.' + task.status);
+        head.appendChild(status);
+        var title = document.createElement('span');
+        title.className = 'task-title';
+        title.textContent = task.title;
+        head.appendChild(title);
+        var meta = document.createElement('span');
+        meta.className = 'task-meta';
+        meta.textContent = fmtTime(task.updated);
+        head.appendChild(meta);
+        card.appendChild(head);
+        if (task.body) {
+          var ex = document.createElement('p');
+          ex.className = 'task-excerpt';
+          ex.textContent = task.body;
+          card.appendChild(ex);
+        }
+        card.addEventListener('click', function () { openTask(task.id); });
+        card.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(task.id); } });
+        return card;
+      }
+
+      function openTask(id) {
+        api('/api/tasks').then(function (data) {
+          var task = data.items.find(function (x) { return x.id === id; });
+          if (!task) return;
+          detailTask = task;
+          els.taskKindBadge.textContent = task.kind;
+          els.taskStatusBadge.textContent = t('tstatus.' + task.status);
+          els.taskStatusBadge.className = 'badge badge-status-' + task.status;
+          els.taskTitle.textContent = task.title;
+          els.taskMeta.textContent = t('task.by') + task.createdBy + ' · ' + fmtTime(task.created) + (task.updated && task.updated !== task.created ? ' → ' + fmtTime(task.updated) : '');
+          els.taskBody.textContent = task.body || '—';
+          if (task.deliverables && task.deliverables.length) {
+            els.taskDeliverables.hidden = false;
+            els.taskDeliverables.innerHTML = '';
+            task.deliverables.forEach(function (name) {
+              var a = document.createElement('a');
+              a.href = '/api/outputs/file?name=' + encodeURIComponent(name);
+              a.target = '_blank';
+              a.rel = 'noopener';
+              a.textContent = name;
+              els.taskDeliverables.appendChild(a);
+              els.taskDeliverables.appendChild(document.createTextNode(' '));
+            });
+          } else {
+            els.taskDeliverables.hidden = true;
+          }
+          els.taskDlField.hidden = task.status !== 'making';
+          els.taskDlInput.value = '';
+          renderTaskActions(task);
+          els.taskMask.hidden = false;
+          els.taskClose.focus();
+        }).catch(function () { showToast(t('error.read')); });
+      }
+
+      function renderTaskActions(task) {
+        els.taskActions.innerHTML = '';
+        var acts = [];
+        if (task.status === 'draft') acts.push({ label: t('taction.confirm'), to: 'ready', primary: true });
+        if (task.status === 'ready') {
+          acts.push({ label: t('taction.start'), to: 'making', primary: true });
+          acts.push({ label: t('taction.back'), to: 'draft' });
+        }
+        if (task.status === 'making') {
+          acts.push({ label: t('taction.done'), to: 'done', primary: true });
+          acts.push({ label: t('taction.back'), to: 'ready' });
+        }
+        if (task.status === 'cancelled') acts.push({ label: t('taction.revive'), to: 'draft' });
+        if (task.status !== 'done') acts.push({ label: t('tstatus.cancelled'), to: 'cancelled' });
+        acts.forEach(function (a) {
+          var btn = document.createElement('button');
+          btn.className = 'btn' + (a.primary ? ' btn-primary' : '');
+          btn.textContent = a.label;
+          btn.addEventListener('click', function () { transitionTask(task, a.to); });
+          els.taskActions.appendChild(btn);
+        });
+        var del = document.createElement('button');
+        del.className = 'btn btn-text btn-danger';
+        del.textContent = t('btn.delete');
+        del.addEventListener('click', function () {
+          api('/api/tasks?id=' + encodeURIComponent(task.id), { method: 'DELETE' }).then(function () {
+            showToast(t('toast.deleted'));
+            els.taskMask.hidden = true;
+            loadTasks();
+          }).catch(function () { showToast(t('toast.fail.delete')); });
+        });
+        els.taskActions.appendChild(del);
+      }
+
+      function transitionTask(task, to) {
+        var payload = { status: to };
+        if (to === 'done') {
+          payload.deliverables = els.taskDlInput.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        }
+        api('/api/tasks?id=' + encodeURIComponent(task.id), {
+          method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        }).then(function () {
+          showToast(t('toast.saved'));
+          els.taskMask.hidden = true;
+          loadTasks();
+        }).catch(function () { showToast(t('toast.fail.save')); });
+      }
+
+      // ---------- 示例编队（一键组队） ----------
+      var TEAM_PRESETS = [
+        {
+          id: 'life', nameKey: 'preset.life', descKey: 'preset.life.desc',
+          members: [
+            { key: 'aide-planner', display: 'Plan', role: '麦格团队的规划师：日程安排、目标拆解、优先级排序', persona: '你是 Plan，麦格团队的规划师。把模糊的目标拆成今天能做的下一步；排序永远给理由；不堆砌清单，给取舍。' },
+            { key: 'aide-coach', display: 'Coach', role: '麦格团队的习惯教练：习惯养成、复盘、轻量打鸡血', persona: '你是 Coach，麦格团队的习惯教练。复盘先肯定再点一个问题；打鸡血要具体，不喊口号；习惯建议小到不可能失败。' },
+          ],
+        },
+        {
+          id: 'study', nameKey: 'preset.study', descKey: 'preset.study.desc',
+          members: [
+            { key: 'tutor-bot', display: 'Tutor', role: '麦格团队的私教：费曼式讲透任何主题，出小测验收', persona: '你是 Tutor，麦格团队的私教。用生活类比讲课，不许用术语解释术语；讲完必出三道由易到难的小测；教会比讲完整重要。' },
+            { key: 'quiz-bot', display: 'Quiz', role: '麦格团队的出题官：按主题出卷、判卷、讲评', persona: '你是 Quiz，麦格团队的出题官。出题覆盖理解/应用/陷阱三档；判卷给分数更给讲评；陷阱题要说明陷阱在哪。' },
+          ],
+        },
+        {
+          id: 'eng', nameKey: 'preset.eng', descKey: 'preset.eng.desc',
+          members: [
+            { key: 'qa-bot', display: 'QA', role: '麦格团队的质量守门员：测试用例、边界穷举、验收清单', persona: '你是 QA，麦格团队的质量守门员。先想「怎么让它坏」再想「怎么证明它对」；用例覆盖正常/边界/恶意三档；验收清单要能逐项打勾。' },
+            { key: 'devops-bot', display: 'Ops', role: '麦格团队的运维参谋：部署、监控、故障排查手册', persona: '你是 Ops，麦格团队的运维参谋。先问现状再给方案；每个建议附回滚路径；故障排查按「先恢复、再定位、后根治」的顺序。' },
+          ],
+        },
+      ];
+
+      function renderPresets(currentKeys) {
+        var wrap = $('preset-list');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        TEAM_PRESETS.forEach(function (p) {
+          var missing = p.members.filter(function (m) { return !currentKeys.includes(m.key); });
+          var card = document.createElement('div');
+          card.className = 'member-card';
+          var head = document.createElement('div');
+          head.className = 'member-head';
+          var name = document.createElement('span');
+          name.className = 'member-name';
+          name.textContent = t(p.nameKey);
+          head.appendChild(name);
+          card.appendChild(head);
+          var desc = document.createElement('div');
+          desc.className = 'member-desc';
+          desc.textContent = t(p.descKey);
+          card.appendChild(desc);
+          var roster = document.createElement('div');
+          roster.className = 'member-persona';
+          roster.textContent = p.members.map(function (m) { return m.display + '（' + m.role.split('：')[0].replace('麦格团队的', '') + '）'; }).join(' · ');
+          card.appendChild(roster);
+          var btn = document.createElement('button');
+          btn.className = 'btn' + (missing.length ? ' btn-primary' : '');
+          btn.style.marginTop = '10px';
+          btn.textContent = missing.length ? t('preset.hire') : t('preset.hired');
+          btn.disabled = !missing.length;
+          btn.addEventListener('click', function () { hirePreset(p, btn); });
+          card.appendChild(btn);
+          wrap.appendChild(card);
+        });
+      }
+
+      async function hirePreset(p, btn) {
+        btn.disabled = true;
+        btn.textContent = '…';
+        for (const m of p.members) {
+          try {
+            await api('/api/team', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(m),
+            });
+          } catch (e) { /* key_exists 等失败不阻塞其余成员 */ }
+        }
+        showToast(t('hire.done') + ' · ' + t(p.nameKey));
+        loadTeam();
+        loadConvs();
+      }
+
+      // ---------- 招聘 ----------
+      function submitHire() {
+        var key = els.hrKey.value.trim().toLowerCase();
+        var display = els.hrName.value.trim();
+        var role = els.hrRole.value.trim();
+        if (!key || !display || !role) { els.hrError.textContent = t('hire.err'); return; }
+        if (!/^[a-z][a-z0-9-]{2,30}$/.test(key)) { els.hrError.textContent = t('hire.err.key'); return; }
+        els.hrSubmit.disabled = true;
+        api('/api/team', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ key: key, display: display, role: role, persona: els.hrPersona.value.trim() }),
+        }).then(function () {
+          showToast(t('hire.done') + ' · ' + display);
+          els.hireMask.hidden = true;
+          loadTeam();
+          loadConvs();
+        }).catch(function (err) {
+          els.hrError.textContent = t('hire.err');
+        }).finally(function () {
+          els.hrSubmit.disabled = false;
+        });
+      }
+
+      function submitTaskNew() {
+        var title = els.tnTitle.value.trim();
+        if (!title) { els.tnError.textContent = t('task.err.title'); return; }
+        els.tnSubmit.disabled = true;
+        api('/api/tasks', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: title, kind: els.tnKind.value, body: els.tnBody.value.trim() }),
+        }).then(function () {
+          showToast(t('toast.created'));
+          els.tasknewMask.hidden = true;
+          loadTasks();
+        }).catch(function () {
+          els.tnError.textContent = t('toast.fail.create');
+        }).finally(function () {
+          els.tnSubmit.disabled = false;
+        });
+      }
+
+      // ---------- 定时任务 ----------
+      function loadSchedules() {
+        els.scheduleList.innerHTML = '';
+        setStatus(els.schedulesStatus, 'loading', t('loading.schedules'));
+        api('/api/schedules').then(function (data) {
+          els.scheduleList.innerHTML = '';
+          if (!data.items.length) {
+            setStatus(els.schedulesStatus, 'empty', t('empty.schedules'), t('empty.schedules.desc'));
+            return;
+          }
+          setStatus(els.schedulesStatus, null);
+          data.items.forEach(function (s) {
+            var li = document.createElement('li');
+            li.className = 'schedule-card';
+            var head = document.createElement('div');
+            head.className = 'schedule-head';
+            var name = document.createElement('span');
+            name.className = 'schedule-name';
+            name.textContent = s.name;
+            head.appendChild(name);
+            var badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = s.freqType === 'daily' ? t('schedule.freq.dailyAt') + s.time : t('schedule.freq.intervalMin', { n: s.minutes });
+            head.appendChild(badge);
+            var who = document.createElement('span');
+            who.className = 'badge badge-user';
+            who.textContent = s.memberKey === 'maige' ? '麦格' : s.memberKey;
+            head.appendChild(who);
+            var meta = document.createElement('span');
+            meta.className = 'schedule-meta';
+            meta.textContent = s.lastRunAt ? t('schedule.lastRun') + s.lastRunAt.slice(0, 16).replace('T', ' ') : t('schedule.never');
+            head.appendChild(meta);
+            var del = document.createElement('button');
+            del.className = 'btn btn-text btn-danger';
+            del.style.marginLeft = 'auto';
+            del.textContent = t('btn.delete');
+            del.setAttribute('aria-label', t('btn.delete') + ' ' + s.name);
+            del.addEventListener('click', function () {
+              if (!window.confirm(t('schedule.delete.confirm', { name: s.name }))) return;
+              api('/api/schedules?id=' + encodeURIComponent(s.id), { method: 'DELETE' }).then(function () {
+                showToast(t('toast.deleted'));
+                loadSchedules();
+              }).catch(function () { showToast(t('toast.fail.delete')); });
+            });
+            head.appendChild(del);
+            li.appendChild(head);
+            var text = document.createElement('p');
+            text.className = 'schedule-text';
+            text.textContent = s.text;
+            li.appendChild(text);
+            els.scheduleList.appendChild(li);
+          });
+        }).catch(function () {
+          setStatus(els.schedulesStatus, 'error', t('error.read'), t('error.read.retry'));
+        });
+      }
+
+      function openScheduleForm() {
+        els.schName.value = '';
+        els.schText.value = '';
+        els.schFreq.value = 'daily';
+        els.schTimeWrap.hidden = false;
+        els.schMinutesWrap.hidden = true;
+        els.schError.textContent = '';
+        els.schMember.innerHTML = '';
+        var members = chatMembers.length ? chatMembers : [{ key: 'maige', displayName: '麦格' }];
+        members.forEach(function (m) {
+          var opt = document.createElement('option');
+          opt.value = m.key;
+          opt.textContent = m.displayName + (m.key === 'maige' ? t('member.chief') : '');
+          els.schMember.appendChild(opt);
+        });
+        els.scheduleMask.hidden = false;
+        els.schName.focus();
+      }
+
+      function submitSchedule() {
+        var name = els.schName.value.trim();
+        var text = els.schText.value.trim();
+        if (!name) { els.schError.textContent = t('schedule.err.name'); return; }
+        if (!text) { els.schError.textContent = t('schedule.err.text'); return; }
+        els.schSubmit.disabled = true;
+        api('/api/schedules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: name,
+            text: text,
+            memberKey: els.schMember.value,
+            freqType: els.schFreq.value,
+            time: els.schTime.value,
+            minutes: parseInt(els.schMinutes.value, 10) || 60
+          })
+        }).then(function () {
+          showToast(t('toast.created'));
+          els.scheduleMask.hidden = true;
+          loadSchedules();
+        }).catch(function () {
+          els.schError.textContent = t('toast.fail.create');
+        }).finally(function () {
+          els.schSubmit.disabled = false;
+        });
+      }
+
+      // ---------- 设置 ----------
+      function loadSettings() {
+        setTheme(themeOverride);
+        api('/api/info').then(function (info) {
+          els.cfgMemoryDir.value = info.memoryDir;
+          els.cfgOutputsDir.value = info.outputsDir;
+          els.infoPanelVersion.textContent = info.panelVersion;
+          els.infoMaigeVersion.textContent = info.maigeVersion || '—';
+          els.infoMemoryDir.textContent = info.memoryDir;
+          els.infoOutputsDir.textContent = info.outputsDir;
+          els.cfgNotifications.checked = info.notifications !== false;
+        }).catch(function () {
+          showToast(t('toast.fail.settings'));
+        });
+        api('/api/diagnostics').then(function (diag) {
+          els.diagSummary.textContent = t('diag.summary.tpl', {
+            llm: diag.llmReady ? t('diag.llm.ready') : t('diag.llm.off'),
+            messages: diag.messageCount, schedules: diag.scheduleCount
+          });
+          els.errorList.innerHTML = '';
+          if (!diag.errors.length) {
+            var li = document.createElement('li');
+            li.className = 'error-item';
+            li.textContent = t('diag.noErrors');
+            li.style.color = 'var(--mcode-text-subtle)';
+            els.errorList.appendChild(li);
+            return;
+          }
+          diag.errors.forEach(function (e) {
+            var li = document.createElement('li');
+            li.className = 'error-item';
+            var msg = document.createElement('div');
+            msg.className = 'error-msg';
+            msg.textContent = e.message;
+            li.appendChild(msg);
+            var meta = document.createElement('div');
+            meta.className = 'error-meta';
+            meta.textContent = e.at.slice(0, 16).replace('T', ' ') + ' · ' + e.source;
+            li.appendChild(meta);
+            els.errorList.appendChild(li);
+          });
+        }).catch(function () { /* 诊断失败不阻塞设置页 */ });
+      }
+
+      function saveConfig() {
+        els.saveConfig.disabled = true;
+        api('/api/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ memoryDir: els.cfgMemoryDir.value.trim(), outputsDir: els.cfgOutputsDir.value.trim() })
+        }).then(function () {
+          showToast(t('toast.saved'));
+          loadSettings();
+        }).catch(function () {
+          showToast(t('toast.fail.config'));
+        }).finally(function () {
+          els.saveConfig.disabled = false;
+        });
+      }
+
+      function resetConfig() {
+        // 回退到服务端默认（不写死个人绝对路径，公开仓库友好）
+        els.cfgMemoryDir.value = els.cfgMemoryDir.placeholder || '';
+        els.cfgOutputsDir.value = els.cfgOutputsDir.placeholder || '';
+        showToast(t('toast.defaults'));
+      }
+
+      // ---------- 事件绑定 ----------
+      Object.keys(els.tabs).forEach(function (key) {
+        els.tabs[key].addEventListener('click', function () { switchTab(key); });
+      });
+      els.openAdmin.addEventListener('click', openAdmin);
+      els.closeAdmin.addEventListener('click', closeAdminView);
+      els.refreshMemories.addEventListener('click', loadMemories);
+      els.refreshTeam.addEventListener('click', loadTeam);
+      els.chatForm.addEventListener('submit', function (e) { e.preventDefault(); sendChat(); });
+      els.chatClear.addEventListener('click', clearChat);
+      els.chatExport.addEventListener('click', function () {
+        api('/api/chat/export', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ conv: currentConv }),
+        }).then(function (r) {
+          showToast(t('toast.exported', { name: r.name }));
+        }).catch(function () { showToast(t('toast.export.empty')); });
+      });
+      els.chatAttach.addEventListener('click', function () { els.chatFile.click(); });
+      els.chatFile.addEventListener('change', function () {
+        if (els.chatFile.files && els.chatFile.files[0]) readImageFile(els.chatFile.files[0]);
+        els.chatFile.value = '';
+      });
+      els.chatInput.addEventListener('paste', function (e) {
+        var files = e.clipboardData && e.clipboardData.files;
+        if (files && files.length) {
+          e.preventDefault();
+          readImageFile(files[0]);
+        }
+      });
+      // 语音输入：浏览器支持才显示（SpeechRecognition）
+      (function initMic() {
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;
+        els.chatMic.hidden = false;
+        var rec = null;
+        var recOn = false;
+        els.chatMic.addEventListener('click', function () {
+          if (recOn && rec) { rec.stop(); return; }
+          rec = new SR();
+          rec.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
+          rec.interimResults = false;
+          rec.onresult = function (e) {
+            var text = e.results[0][0].transcript;
+            els.chatInput.value = els.chatInput.value ? els.chatInput.value + ' ' + text : text;
+            els.chatInput.focus();
+          };
+          rec.onend = function () { recOn = false; els.chatMic.classList.remove('recording'); };
+          rec.onerror = function () { recOn = false; els.chatMic.classList.remove('recording'); showToast(t('chat.micFail')); };
+          try {
+            rec.start();
+            recOn = true;
+            els.chatMic.classList.add('recording');
+          } catch (err) { /* 启动失败静默 */ }
+        });
+      })();
+      els.chatPeer.addEventListener('click', function () {
+        var c = convOf(currentConv);
+        if (c && c.kind !== 'group') openBot(c.key);
+      });
+      els.botCancel.addEventListener('click', closeBot);
+      els.botSave.addEventListener('click', saveBot);
+      els.botMask.addEventListener('click', function (e) { if (e.target === els.botMask) closeBot(); });
+      els.refreshCaps.addEventListener('click', loadCaps);
+      els.refreshTasks.addEventListener('click', loadTasks);
+      els.addTask.addEventListener('click', function () {
+        els.tnTitle.value = ''; els.tnBody.value = ''; els.tnKind.value = 'text'; els.tnError.textContent = '';
+        els.tasknewMask.hidden = false;
+        els.tnTitle.focus();
+      });
+      els.tasknewForm.addEventListener('submit', function (e) { e.preventDefault(); submitTaskNew(); });
+      els.tnCancel.addEventListener('click', function () { els.tasknewMask.hidden = true; });
+      els.tasknewMask.addEventListener('click', function (e) { if (e.target === els.tasknewMask) els.tasknewMask.hidden = true; });
+      els.taskClose.addEventListener('click', function () { els.taskMask.hidden = true; });
+      els.taskMask.addEventListener('click', function (e) { if (e.target === els.taskMask) els.taskMask.hidden = true; });
+      // 招聘
+      els.hireOpen.addEventListener('click', function () {
+        els.hrKey.value = ''; els.hrName.value = ''; els.hrRole.value = ''; els.hrPersona.value = ''; els.hrError.textContent = '';
+        els.hireMask.hidden = false;
+        els.hrKey.focus();
+      });
+      els.hireForm.addEventListener('submit', function (e) { e.preventDefault(); submitHire(); });
+      els.hrCancel.addEventListener('click', function () { els.hireMask.hidden = true; });
+      els.hireMask.addEventListener('click', function (e) { if (e.target === els.hireMask) els.hireMask.hidden = true; });
+      els.cfgNotifications.addEventListener('change', function () {
+        api('/api/config', {
+          method: 'PUT', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ notifications: els.cfgNotifications.checked }),
+        }).then(function () { showToast(t('toast.saved')); })
+          .catch(function () { showToast(t('toast.fail.config')); });
+      });
+      els.chatSearch.addEventListener('input', function () {
+        chatSearchTerm = els.chatSearch.value.trim();
+        if (chatSearchTerm) pollChat(false);
+      });
+      els.chatSearch.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { els.chatSearch.value = ''; chatSearchTerm = ''; chatLastId = 0; pollChat(true); }
+      });
+      els.addMemory.addEventListener('click', function () { openForm(null); });
+      els.refreshOutputs.addEventListener('click', loadOutputs);
+      els.saveConfig.addEventListener('click', saveConfig);
+      els.resetConfig.addEventListener('click', resetConfig);
+      els.refreshSchedules.addEventListener('click', loadSchedules);
+      els.addSchedule.addEventListener('click', openScheduleForm);
+      els.scheduleForm.addEventListener('submit', function (e) { e.preventDefault(); submitSchedule(); });
+      els.schCancel.addEventListener('click', function () { els.scheduleMask.hidden = true; });
+      els.scheduleMask.addEventListener('click', function (e) { if (e.target === els.scheduleMask) els.scheduleMask.hidden = true; });
+      els.schFreq.addEventListener('change', function () {
+        var isDaily = els.schFreq.value === 'daily';
+        els.schTimeWrap.hidden = !isDaily;
+        els.schMinutesWrap.hidden = isDaily;
+      });
+      els.themeAuto.addEventListener('click', function () { setTheme('auto'); });
+      els.themeLight.addEventListener('click', function () { setTheme('light'); });
+      els.themeDark.addEventListener('click', function () { setTheme('dark'); });
+      $('lang-auto').addEventListener('click', function () { switchLang('auto'); });
+      $('lang-zh').addEventListener('click', function () { switchLang('zh'); });
+      $('lang-en').addEventListener('click', function () { switchLang('en'); });
+
+      function switchLang(mode) {
+        setLang(mode);
+        // 重载当前界面，动态文案（空态/列表/toast/会话列表）全部换成新语言
+        renderConvList();
+        updateChatHead();
+        chatLastId = 0;
+        pollChat(true);
+        if (!els.adminView.hidden) {
+          var active = Object.keys(els.tabs).find(function (k) { return els.tabs[k].getAttribute('aria-selected') === 'true'; });
+          if (active) switchTab(active);
+        }
+      }
+      els.copyDiagnostics.addEventListener('click', function () {
+        api('/api/diagnostics').then(function (diag) {
+          var text = JSON.stringify(diag, null, 2);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { showToast(t('toast.copied')); });
+          } else {
+            showToast(t('toast.noClipboard'));
+          }
+        }).catch(function () { showToast(t('toast.fail.diag')); });
+      });
+      els.confirmCancel.addEventListener('click', closeConfirm);
+      els.confirmOk.addEventListener('click', doDelete);
+      els.confirmMask.addEventListener('click', function (e) { if (e.target === els.confirmMask) closeConfirm(); });
+      els.formCancel.addEventListener('click', closeForm);
+      els.form.addEventListener('submit', function (e) { e.preventDefault(); submitForm(); });
+      els.formMask.addEventListener('click', function (e) { if (e.target === els.formMask) closeForm(); });
+      els.detailClose.addEventListener('click', function () { els.detailMask.hidden = true; });
+      els.detailEdit.addEventListener('click', function () {
+        els.detailMask.hidden = true;
+        if (detailItem) openForm(detailItem);
+      });
+      els.detailMask.addEventListener('click', function (e) { if (e.target === els.detailMask) els.detailMask.hidden = true; });
+      els.previewClose.addEventListener('click', closePreview);
+      els.previewMask.addEventListener('click', function (e) { if (e.target === els.previewMask) closePreview(); });
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        if (!els.previewMask.hidden) closePreview();
+        else if (!els.botMask.hidden) closeBot();
+        else if (!els.taskMask.hidden) els.taskMask.hidden = true;
+        else if (!els.tasknewMask.hidden) els.tasknewMask.hidden = true;
+        else if (!els.hireMask.hidden) els.hireMask.hidden = true;
+        else if (!els.detailMask.hidden) els.detailMask.hidden = true;
+        else if (!els.formMask.hidden) closeForm();
+        else if (!els.scheduleMask.hidden) els.scheduleMask.hidden = true;
+        else if (!els.confirmMask.hidden) closeConfirm();
+      });
+
+      // ---------- 启动：品牌头像 → 成员 → 会话列表 → 自适应轮询 ----------
+      (function boot() {
+        els.brandAvatar.appendChild((function () {
+          var img = document.createElement('img');
+          img.src = '/api/avatar?key=maige';
+          img.alt = '麦格';
+          img.onerror = function () { img.remove(); els.brandAvatar.textContent = '麦'; };
+          return img;
+        })());
+        api('/api/chat/members').then(function (data) { chatMembers = data.members || []; }).catch(function () {});
+        loadConvs().then(function () { pollChat(true); });
+        pollLoop();
+      })();
+    })();
+  </script>
+</body>
+</html>

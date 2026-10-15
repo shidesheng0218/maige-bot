@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "name": "maige-bot",
+  "displayName": "麦格 · 全能搭子",
+  "version": "0.22.0",
+  "description": "住在 MiniMax Code 里的全能 bot，类 Grok 体验：双模式人格陪聊、联网锐评、晨报、记忆偏好，还会画图、做视频、配音、写歌、生成双人播客。自带管理面板「麦格总部」（群聊/团队/记忆/作品库/整活单）。叫一声「麦格」就好使。",
+  "author": "Mike Shi",
+  "icon": "icon.png",
+  "darkIcon": "icon-dark.png",
+  "category": "Productivity",
+  "exampleQueries": [
+    "麦格，晨报",
+    "麦格，锐评一下今天的热搜",
+    "麦格，把刚才这个想法画成一张梗图",
+    "麦格，把这篇笔记做成双人播客",
+    "麦格，写一首《打工人之歌》",
+    "麦格，记住：我喝咖啡不加糖",
+    "麦格，你都记着我什么",
+    "麦格，正经点，帮我看看这段代码",
+    "麦格，开个会：帮我想三个短视频选题",
+    "攻坚：帮我规划一条 AI 产品的冷启动路径",
+    "圆桌：AI 会不会取代摸鱼",
+    "打开麦格总部",
+    "看看麦格都记着我什么",
+    "查看麦格生成的作品"
+  ],
+  "apps": [],
+  "mcpServers": [],
+  "skills": [
+    "skills/maige-persona/SKILL.md",
+    "skills/maige-studio/SKILL.md"
+  ],
+  "hooks": [
+    "hooks/hooks.json"
+  ]
+}

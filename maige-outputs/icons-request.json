@@ -1,0 +1,40 @@
+{
+  "requests": [
+    {
+      "prompt": "Premium app icon design, a cute minimal signal spirit mascot: a rounded blob creature made of flowing glowing signal waves, antenna on top, simple dot eyes with a playful smirk, vibrant blue-to-violet gradient energy body with soft inner glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "maige.png"
+    },
+    {
+      "prompt": "Premium app icon design, an elegant quill feather pen symbol, minimalist geometric shapes, smooth warm gold-to-amber gradient with soft glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "quill.png"
+    },
+    {
+      "prompt": "Premium app icon design, a minimal camera viewfinder frame symbol with rounded corners and corner marks, smooth teal-to-cyan gradient with soft glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "frame.png"
+    },
+    {
+      "prompt": "Premium app icon design, a sharp stylized thorn barb symbol, angular geometric shapes with pointed edges, smooth red-to-coral gradient with soft glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "barb.png"
+    },
+    {
+      "prompt": "Premium app icon design, a minimal magnifying glass symbol with a subtle fingerprint pattern inside the lens, smooth green-to-emerald gradient with soft glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "sleuth.png"
+    },
+    {
+      "prompt": "Premium app icon design, a minimal memo notepad symbol with a folded corner and clean horizontal lines, smooth violet-to-purple gradient with soft glow, on a deep dark navy background, flat vector style with subtle depth, crisp edges, centered composition, professional commercial quality, no text",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "memo.png"
+    }
+  ]
+}

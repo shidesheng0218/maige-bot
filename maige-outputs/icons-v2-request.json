@@ -1,0 +1,40 @@
+{
+  "requests": [
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump little spirit creature made of soft glowing blue-violet signal waves, tiny antenna with a glowing tip, big sparkly eyes with a playful wink, gentle smile, soft 3D Pixar-style render, smooth clay texture, solid soft pastel lavender background, centered bust portrait, adorable and friendly, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "maige.jpg"
+    },
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump orange fox cub writer, holding a tiny golden quill in its paw, big curious eyes, clever little smirk, soft 3D Pixar-style render, smooth clay texture, solid soft pastel peach background, centered bust portrait, adorable, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "quill.jpg"
+    },
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump teal chameleon artist with big swirly imaginative eyes, a tiny paintbrush tucked behind its ear, dreamy creative expression, soft 3D Pixar-style render, smooth clay texture, solid soft pastel mint background, centered bust portrait, adorable, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "frame.jpg"
+    },
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump red hedgehog critic with tiny spiky quills, one skeptical raised eyebrow and sharp evaluating eyes, arms crossed, soft 3D Pixar-style render, smooth clay texture, solid soft pastel rose background, centered bust portrait, adorable but prickly attitude, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "barb.jpg"
+    },
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump emerald green owl detective wearing a tiny deerstalker hat, holding a miniature magnifying glass, big wise focused eyes, soft 3D Pixar-style render, smooth clay texture, solid soft pastel sage background, centered bust portrait, adorable, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "sleuth.jpg"
+    },
+    {
+      "prompt": "Cute chibi mascot avatar: a round plump purple octopus scribe with gentle calm eyes, one tentacle holding a tiny pencil and another holding a small notepad, quiet diligent expression, soft 3D Pixar-style render, smooth clay texture, solid soft pastel lilac background, centered bust portrait, adorable, high quality",
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "output_file": "memo.jpg"
+    }
+  ]
+}

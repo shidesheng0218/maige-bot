@@ -1,0 +1,14 @@
+# 运行时数据（含 API key、聊天记录、本机配置）——绝不入库
+maige-bot/data/
+**/data/standalone/
+**/data/host-tools.json
+**/.panel-test-data/
+
+# 系统/缓存
+.DS_Store
+node_modules/
+*.log
+
+# 本地环境
+.env
+*.local
