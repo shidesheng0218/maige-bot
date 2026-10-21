@@ -10,8 +10,8 @@ import { parseTool, parseCalls } from './parse.mjs';
 export function createOrchestrator(deps) {
   const {
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
-    withCapabilities, memoryBlock, modelFor, maxTokensFor, execTool, lastImageDataUrl,
-    persistChat, logError, notify, context, llm, llmReady,
+    withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
+    persistChat, logError, notify, context, llmReady,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
   } = deps;
 
@@ -33,7 +33,8 @@ export function createOrchestrator(deps) {
 
   async function maybeCompress(convId) {
     const conv = getConv(convId);
-    if (!llmReady || conv.messages.length <= COMPRESS_TRIGGER) return;
+    const provider = defaultProvider();
+    if (!provider || conv.messages.length <= COMPRESS_TRIGGER) return;
     const coveredIdx = conv.summary ? conv.messages.findIndex((m) => m.id === conv.summary.upToId) : -1;
     if (conv.summary && conv.messages.length - (coveredIdx + 1) < COMPRESS_EVERY) return;
     const cutoff = conv.messages.length - COMPRESS_KEEP;
@@ -46,7 +47,7 @@ export function createOrchestrator(deps) {
     }).filter((line) => !/: $/.test(line)).join('\n');
     const prev = conv.summary ? '已有纪要：\n' + conv.summary.text + '\n\n' : '';
     try {
-      const reply = await callLlm(llm,
+      const reply = await callLlm(provider,
         '你是对话压缩器。把对话历史压缩成纪要，保留：用户偏好与决定、关键事实、未完成的承诺、在做的事。口语化中文，不超过 200 字。',
         prev + '新增对话：\n' + text + '\n\n请输出合并后的完整纪要（不超过 200 字，直接给纪要本身）：');
       conv.summary = { text: reply.text, upToId: conv.messages[cutoff - 1].id, at: new Date().toISOString() };
@@ -82,11 +83,13 @@ export function createOrchestrator(deps) {
         const userContent = img
           ? [{ type: 'text', text: transcript }, { type: 'image_url', image_url: { url: img } }]
           : transcript;
+        const sel = resolveModelFor(speaker.key);
+        if (!sel) throw new Error('no_model_provider');
         reply = await callLlm(
-          llm,
+          sel.provider,
           (await withCapabilities(system, speaker.key)) + (await memoryBlock(conv)) + TOOL_PROMPT,
           userContent,
-          modelFor(speaker.key),
+          sel.model,
           (partial) => { conv.draft = { sender: speaker.key, name: speaker.displayName, text: partial }; },
           maxTokensFor(speaker.key),
         );

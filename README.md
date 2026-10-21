@@ -9,13 +9,14 @@
 Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，也什么都能造。
 不为创作者专设：问答、决策、调研、工程、生活、情绪和创作，都是日常。
 
-**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.23.0**
+**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.24.0**
 
 ---
 
 ## 特性
 
 - **人格化全能 bot**：双模式人格（整活/正经）、快捷口令（锐评/晨报/悲歌/播客）、语言跟随（中/英）
+- **自带模型**：面板内可加多个 OpenAI 兼容模型服务（DeepSeek/Kimi/通义/OpenAI/Ollama/vLLM…），每个 bot 单独指定 provider+model；key 只在本地
 - **多 agent 团队**：麦格当主管（Chief），Quill 写作 / Frame 视觉 / Barb 评审 / Sleuth 查证 / Memo 记录 / Bolt 技术，按需动态招聘新角色
 - **麦格（管理面板）**：DS Bot 式聊天主页（Chief 单聊/成员单聊/团队群聊/圆桌/攻坚）、记忆 CRUD、作品库、整活单看板、定时任务、token 用量
 - **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]` 由服务端解析执行——读/列限定工作区，写只进作品库，不给 shell
@@ -24,6 +25,25 @@ Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，
 - **团队自治**：麦格可用 `[[CONFIG]]` 自调成员模型/maxTokens（不能改自己），人也可随时覆盖——双向配置权
 - **程序化头像**：新 bot 按 key 哈希生成确定性几何头像（identicon 风），永远独一无二
 - **输出可见**：搜索结果/作品/整活单/生成物全部直接出卡片/内联媒体，不止干巴巴的文字回执
+
+## 自带模型（Bring Your Own Model）
+
+模型不是绑死的：**面板里可以添加多个 OpenAI 兼容模型服务，每个 bot 单独指定用哪个**。
+
+- **设置 → 模型服务**：填「标识 / 显示名 / Base URL / API Key / 模型列表 / 默认模型」即可
+- **DeepSeek、Kimi、通义、OpenAI、Ollama、vLLM、OpenRouter…** 都能接（只要兼容 `/chat/completions`）
+- 兼容差异已内置处理：dashscope/Qwen 系自动带 `thinking:disabled`（不关思考会返回空），OpenAI 兼容端点不会收到这个陌生字段；鉴权头可改成 `api-key`（Azure 类）
+- API Key 只存在面板配置文件（权限 600），**只留在 Node 进程**，不进客户端、不进日志、不回显
+- 内置两个只读服务：`mcode`（读你本机 MCode 的 config.yaml）、`env`（读 `MAIGE_LLM_*` 环境变量）
+- 没装 MCode 也能用：`node miniapps/maige-bot/miniapp/node/standalone.mjs` 起独立面板，自配模型即可
+
+命令行等价物（无需开面板）：
+
+```bash
+export MAIGE_LLM_BASE_URL="https://api.deepseek.com/v1"
+export MAIGE_LLM_API_KEY="sk-..."
+export MAIGE_LLM_MODELS="deepseek-chat,deepseek-reasoner"
+```
 
 ## 快速开始
 

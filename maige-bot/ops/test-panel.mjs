@@ -332,16 +332,16 @@ try {
 
   // 17b. bot 详情 / 模型 / 能力库
   const models = await (await fetch(base + '/api/models')).json();
-  check('models default kimi-k3', models.default === 'kimi-k3');
-  check('models include chat models', models.models.includes('kimi-k3') && models.models.includes('deepseek-v4.1-flash'), models.models.join(','));
-  check('models exclude image model', !models.models.includes('qwen-image-3.0-pro'));
+  check('models default is provider/model', /^[^/]+\/[^/]+$/.test(models.default || ''), models.default);
+  check('models include chat models', models.models.some((m) => m.endsWith('/kimi-k3')) && models.models.some((m) => m.endsWith('/deepseek-v4.1-flash')), models.models.join(','));
+  check('models exclude image model', !models.models.some((m) => m.endsWith('/qwen-image-3.0-pro')));
 
   const caps = await (await fetch(base + '/api/capabilities')).json();
   check('capabilities 8 seeded packs', caps.items.length === 8, `got ${caps.items.length}`);
   check('caps have name+desc', caps.items.every((p) => p.name && p.description));
 
   const botQ = await (await fetch(base + '/api/bot?key=moke-writer')).json();
-  check('bot detail Quill', botQ.displayName === 'Quill' && botQ.model === 'kimi-k3' && botQ.modelOverride === null);
+  check('bot detail Quill', botQ.displayName === 'Quill' && botQ.model.endsWith('/kimi-k3') && botQ.modelOverride === null, botQ.model);
   check('bot detail has usage+persona', typeof botQ.usage.calls === 'number' && botQ.persona.length > 0);
   check('bot default maxTokens', botQ.maxTokens === 600 && botQ.maxTokensOverride === null);
   check('bot 404 for ghost', (await fetch(base + '/api/bot?key=ghost')).status === 404);
@@ -352,7 +352,7 @@ try {
   });
   check('PUT bot ok', putBot.ok);
   const botQ2 = await (await fetch(base + '/api/bot?key=moke-writer')).json();
-  check('bot model override applied', botQ2.model === 'deepseek-v4.1-flash' && botQ2.modelOverride === 'deepseek-v4.1-flash');
+  check('bot model override applied', botQ2.model.endsWith('/deepseek-v4.1-flash') && /^[^/]+\/deepseek-v4.1-flash$/.test(botQ2.modelOverride), botQ2.model + ' | ' + botQ2.modelOverride);
   check('bot caps attached', botQ2.capabilities.length === 2 && botQ2.capabilities[0].name === '毒舌模式');
 
   // per-bot maxTokens 覆盖（分档 token）

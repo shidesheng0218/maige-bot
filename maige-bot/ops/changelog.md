@@ -1,5 +1,23 @@
 # 迭代记录
 
+## 2026-10-21 面板 v0.24.0：自带模型——人人可用，按需配模型
+- 用户：「我希望用户都能使用这个项目，可以根据自己的需要配置模型来使用」——
+  此前模型来源绑死在 MCode 的 `config.yaml`（dashscope），别人 clone 下来没有模型
+- **多 provider 管理**：设置页新增「模型服务」区（标识/显示名/Base URL/API Key/模型列表/默认模型/思考开关）；
+  `GET/POST/PUT/DELETE /api/providers`；`config.providers` 持久化，key 只在本地（回显只给 hasKey）
+- **每 bot 独立选模型**：模型引用格式 `provider/model`（裸模型 id 向后兼容 → 落到默认 provider）；
+  bot 详情下拉按 provider 分组；删除 provider 会清掉引用它的 bot 覆盖
+- **厂商兼容**：`thinking:disabled` 只发给 `thinking:true` 的 provider（dashscope/Qwen 系，
+  否则 content 为空），OpenAI 兼容端点不收这个陌生字段；`stream_options` 按 provider 开关；
+  鉴权头可配（Azure 类用 `api-key` 而非 `authorization: Bearer`）
+- **不装 MCode 也能跑**：`MAIGE_LLM_BASE_URL`/`MAIGE_LLM_API_KEY`/`MAIGE_LLM_MODELS` 环境变量直连任意
+  OpenAI 兼容端点；面板里配好即用
+- 非对话模型（image/speech/music/video/embedding/vl）自动从可选模型里过滤，不会被误选成聊天模型
+- **流式兼容**：实测发现部分自建/代理服务不支持 SSE 流式（面板会收到空内容）——现在流式拿不到内容时
+  自动回退一次非流式请求，"人人可用"不再被服务端的流式实现卡住
+- 验证：单测+API 测试 35 项全过（新增 provider 归一化/合并/引用解析/请求体组装/CRUD/按 provider 选模型 14 项），
+  集成回归 153 项全过
+
 ## 2026-10-16 面板 v0.23.0：P1 安全/可验证 + P2 架构债清理
 - **CSRF 防护（P1）**：浏览器带 `Origin` 的写请求必须带 `x-maige-csrf: 1`（客户端 `api()` 自动加），
   带 body 的写请求必须是 `application/json`；被拦的请求记入诊断日志。跨站页面无法在不触发

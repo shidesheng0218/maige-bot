@@ -160,3 +160,69 @@ test('无模型配置时聊天返回 503（诚实失败）', async () => {
   assert.equal(d.llmReady, false);
   assert.equal((await send('/api/chat/send', 'POST', { text: 'hi' })).status, 503);
 });
+
+test('自带模型：新增 / 更新 / 删除 provider', async () => {
+  const created = await send('/api/providers', 'POST', {
+    id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1',
+    apiKey: 'sk-secret', models: ['gpt-4o', 'gpt-4o-mini'], defaultModel: 'gpt-4o',
+  });
+  assert.ok(created.ok, 'provider 创建失败');
+  let list = await (await get('/api/providers')).json();
+  const p = list.items.find((x) => x.id === 'openai');
+  assert.ok(p, 'provider 未出现在列表');
+  assert.equal(p.baseURL, 'https://api.openai.com/v1');
+  assert.equal(p.hasKey, true);
+  assert.ok(!JSON.stringify(list).includes('sk-secret'), 'key 不应回显');
+  assert.equal(list.defaultProvider, 'openai', '用户配置的 provider 应为默认');
+
+  // 非法输入
+  assert.equal((await send('/api/providers', 'POST', { id: 'Bad Id', baseURL: 'https://x.dev' })).status, 400);
+  assert.equal((await send('/api/providers', 'POST', { id: 'ok', baseURL: 'not-a-url' })).status, 400);
+  assert.equal((await send('/api/providers', 'POST', { id: 'mcode', baseURL: 'https://x.dev' })).status, 400, '保留 id 不给用户');
+
+  // 更新
+  assert.ok((await send('/api/providers', 'PUT', { id: 'openai', models: ['gpt-4o'], defaultModel: 'gpt-4o' })).ok);
+  list = await (await get('/api/providers')).json();
+  assert.deepEqual(list.items.find((x) => x.id === 'openai').models, ['gpt-4o']);
+
+  // 删除（同时清掉引用它的 bot 覆盖）
+  await send('/api/bot', 'PUT', { key: 'maige', model: 'openai/gpt-4o' });
+  let bot = await (await get('/api/bot?key=maige')).json();
+  assert.equal(bot.model, 'openai/gpt-4o');
+  assert.equal(bot.modelOverride, 'openai/gpt-4o');
+  assert.ok((await fetch(`${BASE}/api/providers?id=openai`, { method: 'DELETE' })).ok);
+  bot = await (await get('/api/bot?key=maige')).json();
+  assert.equal(bot.modelOverride, null, '删除 provider 后 bot 应回到默认');
+});
+
+test('自带模型：每个 bot 可分别指定 provider/model', async () => {
+  await send('/api/providers', 'POST', {
+    id: 'local', name: 'Ollama', baseURL: 'http://127.0.0.1:11434/v1',
+    apiKey: 'ollama', models: ['qwen2.5:14b'], defaultModel: 'qwen2.5:14b',
+  });
+  // 合法引用
+  assert.ok((await send('/api/bot', 'PUT', { key: 'maige', model: 'local/qwen2.5:14b' })).ok);
+  let bot = await (await get('/api/bot?key=maige')).json();
+  assert.equal(bot.model, 'local/qwen2.5:14b');
+  assert.equal(bot.provider, 'local');
+  // 不存在的 provider / 不在列表里的模型 → 400
+  assert.equal((await send('/api/bot', 'PUT', { key: 'maige', model: 'ghost/model' })).status, 400);
+  assert.equal((await send('/api/bot', 'PUT', { key: 'maige', model: 'local/not-in-list' })).status, 400);
+  // 还原
+  await send('/api/bot', 'PUT', { key: 'maige', model: null });
+  await fetch(`${BASE}/api/providers?id=local`, { method: 'DELETE' });
+});
+
+test('模型清单：按 provider 分组给出', async () => {
+  await send('/api/providers', 'POST', {
+    id: 'multi', name: 'Multi', baseURL: 'https://api.example.dev/v1',
+    apiKey: 'k', models: ['m-a', 'm-b', 'qwen-image-3.0-pro'], defaultModel: 'm-a',
+  });
+  const m = await (await get('/api/models')).json();
+  const group = m.providers.find((p) => p.id === 'multi');
+  assert.deepEqual(group.models, ['m-a', 'm-b'], '非对话模型应被过滤');
+  assert.ok(m.models.includes('multi/m-a'));
+  assert.ok(!m.models.includes('multi/qwen-image-3.0-pro'));
+  assert.ok(m.default.includes('/'));
+  await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE' });
+});

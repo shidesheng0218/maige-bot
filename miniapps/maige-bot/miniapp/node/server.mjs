@@ -4,18 +4,22 @@
 // 安全：所有文件访问经 realpath 校验，fail-closed 限定在授权目录内；不做任意文件系统代理。
 
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import * as minimax from './minimax.mjs';
-import { resolveHostPaths, loadLlmConfig } from './core/host.mjs';
+import {
+  resolveHostPaths, parseLlmYaml, mergeProviders, defaultProviderId,
+  splitModelRef, joinModelRef, normalizeProvider, chatModelsOf,
+} from './core/host.mjs';
 import {
   parseTool, parseCalls, parseAgentFrontmatter, parseMemory,
   serializeMemory, normalizeMemoryInput, today, ID_PATTERN,
 } from './core/parse.mjs';
 import { avatarSvgFor, kindOf, extOf, MEDIA_TYPES } from './core/avatar.mjs';
 import { maxTokensForRole, MAX_TOKENS_LIMIT } from './core/roles.mjs';
-import { LLM_MODEL, CHAT_MAX_TOKENS, NON_CHAT_MODEL } from './core/llm.mjs';
+import { CHAT_MAX_TOKENS, NON_CHAT_MODEL } from './core/llm.mjs';
 import { sendJson, sendError, readBody } from './core/http.mjs';
 import { resolveWorkspace, resolveInside, listDir } from './core/fs.mjs';
 import { TASK_TRANSITIONS, TASK_KINDS, serializeTask, parseTask } from './core/tasks.mjs';
@@ -41,7 +45,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.23.0';
+const PANEL_VERSION = '0.24.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -91,12 +95,19 @@ export async function start(context) {
         models: sanitizeStringMap(raw.models),
         capabilities: sanitizeCapsMap(raw.capabilities),
         maxTokens: sanitizeMaxTokensMap(raw.maxTokens),
+        providers: sanitizeProviders(raw.providers),
         notifications: raw.notifications !== false,
         minimaxApiKey: typeof raw.minimaxApiKey === 'string' ? raw.minimaxApiKey.trim() : '',
       };
     } catch {
-      return { ...DEFAULTS, models: {}, capabilities: {}, maxTokens: {}, notifications: true, minimaxApiKey: '' };
+      return { ...DEFAULTS, models: {}, capabilities: {}, maxTokens: {}, providers: [], notifications: true, minimaxApiKey: '' };
     }
+  }
+
+  /** 用户自配 provider 列表（白名单化，key 只留在这里） */
+  function sanitizeProviders(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((p) => normalizeProvider(p)).filter(Boolean).slice(0, 10);
   }
 
   /** bot→model 映射白名单化：key 限 ID_PATTERN，model 限模型 id 字符 */
@@ -148,8 +159,37 @@ export async function start(context) {
 
   // ================= 聊天状态（多会话，DS Bot 式） =================
   // 会话 id：'chief'=与麦格单聊，'group'=团队群聊，'m:<成员key>'=与成员单聊。
-  const llm = loadLlmConfig();
-  const llmReady = !!llm;
+  // 模型来源（自带模型）：用户配置的 providers 优先，其次 MCode 的 config.yaml，最后环境变量。
+  let builtinMCode = null;
+  try {
+    builtinMCode = parseLlmYaml(readFileSync(HOST.minimaxConfigYaml, 'utf8'));
+  } catch { /* 没装 MCode 或没有 config.yaml：纯用户自配模式 */ }
+  const envProvider = process.env.MAIGE_LLM_BASE_URL && process.env.MAIGE_LLM_API_KEY
+    ? { baseURL: process.env.MAIGE_LLM_BASE_URL, apiKey: process.env.MAIGE_LLM_API_KEY, models: String(process.env.MAIGE_LLM_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean) }
+    : null;
+  /** 全部可用 provider（用户配置 + 内建） */
+  function getProviders() {
+    return mergeProviders(config.providers || [], builtinMCode, envProvider);
+  }
+  function defaultProvider() {
+    const list = getProviders();
+    if (!list.length) return null;
+    return list.find((p) => !p.builtin) || list[0];
+  }
+  /** 解析某个 bot 该用哪个 provider + 模型（配置值支持 'provider/model' 与旧版裸 model id） */
+  function resolveModelFor(botKey) {
+    const providers = getProviders();
+    if (!providers.length) return null;
+    const def = defaultProvider();
+    const ref = (config.models || {})[botKey];
+    if (!ref) {
+      return { provider: def, model: def.defaultModel || def.models?.[0] || '', ref: null };
+    }
+    const parsed = splitModelRef(ref, def.id);
+    const provider = providers.find((p) => p.id === parsed.providerId) || def;
+    return { provider, model: parsed.model || provider.defaultModel || provider.models?.[0] || '', ref };
+  }
+  const llmReady = getProviders().length > 0;
   // 宿主连接器探针（仅 MCode 宿主注入；standalone 无）。启动时列出可用工具，供诊断页与后续 GENERATE 能力评估。
   let hostTools = [];
   if (context.hostConnector && typeof context.hostConnector.list === 'function') {
@@ -389,11 +429,6 @@ ${roster}
     return parts.length ? system + '\n\n' + parts.join('\n\n') : system;
   }
 
-  /** bot 的模型覆盖（无覆盖返回 undefined → callLlm 用全局默认） */
-  function modelFor(botKey) {
-    return (config.models || {})[botKey] || undefined;
-  }
-
   /** bot 的输出上限：config.maxTokens 覆盖优先；无覆盖时按职责自动分档；再兜底 CHAT_MAX_TOKENS */
   function maxTokensFor(botKey) {
     const override = (config.maxTokens || {})[botKey];
@@ -601,8 +636,10 @@ ${roster}
   const execTool = createToolExecutor({
     getConfig: () => config,
     updateConfig: async (patch) => { config = await saveConfig(patch); return config; },
-    context, appendMessage, getMembers, hireBot, writeTask, notify, webSearch, llm, logError,
+    context, appendMessage, getMembers, hireBot, writeTask, notify, webSearch, logError,
     workspaceRoot: WORKSPACE_ROOT,
+    listProviders: getProviders,
+    splitModelRef, joinModelRef,
   });
 
   /** 最近一条带图用户消息的 dataURL（读文件回 base64），没有则 null */
@@ -625,8 +662,8 @@ ${roster}
     speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress,
   } = createOrchestrator({
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
-    withCapabilities, memoryBlock, modelFor, maxTokensFor, execTool, lastImageDataUrl,
-    persistChat, logError, notify, context, llm, llmReady,
+    withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
+    persistChat, logError, notify, context, llmReady,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
   });
 
@@ -953,12 +990,77 @@ ${roster}
 
     // ---------- bot 详情 / 模型 / 能力库（DS Bot 式） ----------
     if (method === 'GET' && path === '/api/models') {
-      const all = llm?.models ?? [];
+      const providers = getProviders();
+      const def = defaultProvider();
       sendJson(res, 200, {
-        default: LLM_MODEL,
-        models: all.filter((m) => !NON_CHAT_MODEL.test(m)),
+        default: def ? joinModelRef(def.id, def.defaultModel || def.models?.[0] || '') : '',
+        defaultProvider: def ? def.id : '',
+        providers: providers.map((p) => ({
+          id: p.id, name: p.name, baseURL: p.baseURL, builtin: p.builtin, hasKey: !!p.apiKey,
+          models: chatModelsOf(p, NON_CHAT_MODEL), defaultModel: p.defaultModel,
+        })),
+        // 兼容旧客户端：扁平模型列表
+        models: providers.flatMap((p) => chatModelsOf(p, NON_CHAT_MODEL).map((m) => joinModelRef(p.id, m))),
         overrides: config.models || {},
       });
+      return;
+    }
+
+    // ---------- 自带模型服务（providers） ----------
+    if (method === 'GET' && path === '/api/providers') {
+      const providers = getProviders();
+      const def = defaultProvider();
+      sendJson(res, 200, {
+        defaultProvider: def ? def.id : '',
+        items: providers.map((p) => ({
+          id: p.id, name: p.name, baseURL: p.baseURL, builtin: p.builtin, hasKey: !!p.apiKey,
+          models: chatModelsOf(p, NON_CHAT_MODEL), defaultModel: p.defaultModel, thinking: p.thinking, streamUsage: p.streamUsage,
+          authHeader: p.authHeader, authPrefix: p.authPrefix,
+        })),
+      });
+      return;
+    }
+
+    if (method === 'POST' && path === '/api/providers') {
+      const body = await readBody(req);
+      const p = normalizeProvider(body);
+      if (!p) return sendError(res, 400, 'invalid_provider');
+      if (p.builtin) return sendError(res, 400, 'builtin_provider');
+      if (p.id === 'mcode' || p.id === 'env') return sendError(res, 400, 'reserved_provider_id'); // 保留 id 给内建服务
+      const list = (config.providers || []).filter((x) => x.id !== p.id);
+      if (list.length >= 10) return sendError(res, 400, 'too_many_providers');
+      config = await saveConfig({ providers: [...list, p] });
+      context.logger.info('maige-bot.provider.added', { id: p.id });
+      sendJson(res, 200, { ok: true, id: p.id });
+      return;
+    }
+
+    if (method === 'PUT' && path === '/api/providers') {
+      const body = await readBody(req);
+      const id = String(body.id ?? '').trim().toLowerCase();
+      const list = config.providers || [];
+      const existing = list.find((x) => x.id === id);
+      if (!existing) return sendError(res, 404, 'provider_not_found');
+      const merged = normalizeProvider({ ...existing, ...body, id });
+      if (!merged) return sendError(res, 400, 'invalid_provider');
+      config = await saveConfig({ providers: list.map((x) => (x.id === id ? merged : x)) });
+      context.logger.info('maige-bot.provider.updated', { id });
+      sendJson(res, 200, { ok: true, id });
+      return;
+    }
+
+    if (method === 'DELETE' && path === '/api/providers') {
+      const id = url.searchParams.get('id') ?? '';
+      const list = config.providers || [];
+      if (!list.some((x) => x.id === id)) return sendError(res, 404, 'provider_not_found');
+      // 被 bot 引用时先解除引用，避免留下悬空配置
+      const nextModels = { ...(config.models || {}) };
+      for (const [bot, ref] of Object.entries(nextModels)) {
+        if (String(ref).startsWith(id + '/')) delete nextModels[bot];
+      }
+      config = await saveConfig({ providers: list.filter((x) => x.id !== id), models: nextModels });
+      context.logger.info('maige-bot.provider.removed', { id });
+      sendJson(res, 200, { ok: true, id });
       return;
     }
 
@@ -994,13 +1096,16 @@ ${roster}
       const packs = await listPacks();
       const attachedIds = (config.capabilities || {})[key] || [];
       const maxTok = maxTokensFor(key);
+      const sel = resolveModelFor(key);
       sendJson(res, 200, {
         key: member.key,
         displayName: member.displayName,
         role: member.role,
         persona: member.persona,
-        model: modelFor(key) || LLM_MODEL,
-        modelOverride: modelFor(key) || null,
+        model: sel ? joinModelRef(sel.provider.id, sel.model) : '',
+        modelOverride: sel && sel.ref ? sel.ref : null,
+        provider: sel ? sel.provider.id : '',
+        providerName: sel ? sel.provider.name : '',
         maxTokens: maxTok || CHAT_MAX_TOKENS,
         maxTokensOverride: maxTok || null,
         capabilities: attachedIds.map((id) => {
@@ -1017,14 +1122,24 @@ ${roster}
       const key = String(body.key ?? '');
       const members = await getMembers();
       if (!ID_PATTERN.test(key) || !members.some((m) => m.key === key)) return sendError(res, 404, 'bot_not_found');
-      const chatModels = (llm?.models ?? []).filter((m) => !NON_CHAT_MODEL.test(m));
+      const providers = getProviders();
+      const defId = defaultProviderId(providers);
       const nextModels = { ...(config.models || {}) };
       const nextCaps = { ...(config.capabilities || {}) };
       const nextMaxTokens = { ...(config.maxTokens || {}) };
       if ('model' in body) {
         if (body.model === null || body.model === '') delete nextModels[key];
-        else if (typeof body.model === 'string' && chatModels.includes(body.model)) nextModels[key] = body.model;
-        else return sendError(res, 400, 'invalid_model');
+        else if (typeof body.model === 'string' && body.model.trim()) {
+          const parsed = splitModelRef(body.model.trim(), defId);
+          const provider = providers.find((p) => p.id === parsed.providerId);
+          if (!provider) return sendError(res, 400, 'invalid_provider');
+          // provider 列了对话模型就必须在列表里；没列（自建服务）则接受任意模型名
+          const chatModels = chatModelsOf(provider, NON_CHAT_MODEL);
+          if (chatModels.length && !chatModels.includes(parsed.model)) {
+            return sendError(res, 400, 'invalid_model');
+          }
+          nextModels[key] = joinModelRef(provider.id, parsed.model);
+        } else return sendError(res, 400, 'invalid_model');
       }
       if ('maxTokens' in body) {
         if (body.maxTokens === null || body.maxTokens === '') delete nextMaxTokens[key];
@@ -1041,7 +1156,13 @@ ${roster}
       }
       config = await saveConfig({ models: nextModels, capabilities: nextCaps, maxTokens: nextMaxTokens });
       context.logger.info('maige-bot.bot.updated');
-      sendJson(res, 200, { ok: true, model: modelFor(key) || LLM_MODEL, maxTokens: maxTokensFor(key) || CHAT_MAX_TOKENS, capabilities: nextCaps[key] || [] });
+      const sel2 = resolveModelFor(key);
+      sendJson(res, 200, {
+        ok: true,
+        model: sel2 ? joinModelRef(sel2.provider.id, sel2.model) : '',
+        maxTokens: maxTokensFor(key) || CHAT_MAX_TOKENS,
+        capabilities: nextCaps[key] || [],
+      });
       return;
     }
 

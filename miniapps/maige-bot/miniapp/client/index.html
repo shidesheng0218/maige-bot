@@ -435,6 +435,16 @@
     .card-item a { color: var(--mcode-accent); text-decoration: none; word-break: break-all; }
     .card-item a:hover { text-decoration: underline; }
     .card-item-snippet { color: var(--mcode-text-muted); font-size: 12px; margin-top: 2px; }
+    /* 模型服务（自带模型） */
+    .provider-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 16px; }
+    .provider-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--mcode-border); border-radius: 12px; background: var(--mcode-surface); }
+    .provider-row .pv-name { font-weight: 600; white-space: nowrap; }
+    .provider-row .pv-meta { flex: 1; min-width: 0; color: var(--mcode-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .provider-row .pv-actions { display: flex; gap: 6px; }
+    .provider-badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--mcode-bg-secondary); color: var(--mcode-text-muted); white-space: nowrap; }
+    .provider-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 16px; margin-bottom: 18px; }
+    .provider-form .toolbar { grid-column: 1 / -1; }
+    .btn.btn-sm { padding: 4px 10px; font-size: 12px; }
     .msg.system .bubble {
       background: var(--mcode-surface-muted); border: 1px solid var(--mcode-border);
       border-radius: 999px; padding: 5px 14px; font-size: 11.5px; color: var(--mcode-text-muted);
@@ -678,6 +688,43 @@
             <input type="checkbox" id="cfg-notifications" />
             <label for="cfg-notifications" data-i18n="settings.notify">定时任务触发、新整活单创建时发 macOS 系统通知</label>
           </div>
+          <h2 class="section-title" data-i18n="sec.providers">模型服务</h2>
+          <p class="field-hint" data-i18n="providers.hint">接你自己的 OpenAI 兼容模型服务（DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…）；每个 bot 可分别指定模型。</p>
+          <div id="provider-list" class="provider-list"></div>
+          <form id="provider-form" class="provider-form" autocomplete="off">
+            <div class="field">
+              <label for="pv-id" data-i18n="provider.id">标识（小写字母/数字/连字符）</label>
+              <input class="input mono" id="pv-id" type="text" placeholder="openai" />
+            </div>
+            <div class="field">
+              <label for="pv-name" data-i18n="provider.name">显示名</label>
+              <input class="input" id="pv-name" type="text" placeholder="OpenAI" />
+            </div>
+            <div class="field">
+              <label for="pv-base" data-i18n="provider.baseURL">Base URL</label>
+              <input class="input mono" id="pv-base" type="text" placeholder="https://api.openai.com/v1" />
+            </div>
+            <div class="field">
+              <label for="pv-key" data-i18n="provider.apiKey">API Key</label>
+              <input class="input mono" id="pv-key" type="password" placeholder="sk-..." />
+            </div>
+            <div class="field">
+              <label for="pv-models" data-i18n="provider.models">模型列表（逗号分隔）</label>
+              <input class="input mono" id="pv-models" type="text" placeholder="gpt-4o, gpt-4o-mini" />
+            </div>
+            <div class="field">
+              <label for="pv-default" data-i18n="provider.defaultModel">默认模型</label>
+              <input class="input mono" id="pv-default" type="text" />
+            </div>
+            <div class="checkbox-row">
+              <input type="checkbox" id="pv-thinking" />
+              <label for="pv-thinking" data-i18n="provider.thinking">该服务需要显式关闭思考（dashscope / Qwen 系）</label>
+            </div>
+            <div class="toolbar">
+              <button class="btn btn-primary" type="submit" id="pv-save" data-i18n="btn.save">保存</button>
+              <button class="btn" type="button" id="pv-clear" data-i18n="btn.clearForm">清空表单</button>
+            </div>
+          </form>
           <h2 class="section-title" data-i18n="sec.dirs">目录</h2>
           <div class="field">
             <label for="cfg-memory-dir" data-i18n="label.memoryDir">记忆目录（绝对路径）</label>
@@ -968,6 +1015,15 @@
           'tab.overview': '概览', 'tab.team': '团队', 'tab.memories': '记忆管理', 'tab.outputs': '作品库', 'tab.caps': '能力库', 'tab.tasks': '任务', 'tab.schedules': '定时任务', 'tab.settings': '设置',
           'sec.trend': 'Token 走势（近 14 天）', 'sec.rank': '成员消耗排行', 'sec.recentMemories': '最近记忆', 'sec.recentOutputs': '最近作品', 'sec.commands': '快捷口令',
           'sec.appearance': '外观', 'sec.dirs': '目录', 'sec.info': '插件信息', 'sec.diagnostics': '诊断', 'sec.notifications': '通知',
+          'sec.providers': '模型服务',
+          'providers.hint': '接你自己的 OpenAI 兼容模型服务（DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…）；每个 bot 可分别指定模型。',
+          'provider.id': '标识（小写字母/数字/连字符）', 'provider.name': '显示名', 'provider.baseURL': 'Base URL',
+          'provider.apiKey': 'API Key', 'provider.models': '模型列表（逗号分隔）', 'provider.defaultModel': '默认模型',
+          'provider.thinking': '该服务需要显式关闭思考（dashscope / Qwen 系）',
+          'provider.empty': '还没有自配模型服务——填上面那张表就能接自己的模型。',
+          'provider.default': '默认', 'provider.builtin': '内置', 'provider.modelsUnit': '个模型', 'provider.noKey': '未填 key',
+          'provider.err.required': '标识和 Base URL 必填', 'provider.confirmDelete': '删除模型服务「{name}」？引用它的 bot 会回到默认模型。',
+          'toast.provider.saved': '模型服务已保存', 'toast.provider.deleted': '模型服务已删除', 'toast.fail.providers': '模型服务操作失败',
           'btn.refresh': '刷新', 'btn.addMemory': '新增记忆', 'btn.addSchedule': '新建任务', 'btn.saveConfig': '保存目录设置', 'btn.resetConfig': '恢复默认',
           'btn.copyDiag': '复制诊断信息', 'btn.cancel': '取消', 'btn.delete': '删除', 'btn.save': '保存', 'btn.create': '创建', 'btn.close': '关闭', 'btn.edit': '编辑', 'btn.openFile': '打开原文件',
           'btn.clearChat': '清空', 'btn.send': '发送',
@@ -1081,6 +1137,15 @@
           'tab.overview': 'Overview', 'tab.team': 'Team', 'tab.memories': 'Memories', 'tab.outputs': 'Works', 'tab.caps': 'Capabilities', 'tab.tasks': 'Tasks', 'tab.schedules': 'Schedules', 'tab.settings': 'Settings',
           'sec.trend': 'Token Trend (14 days)', 'sec.rank': 'Usage by Member', 'sec.recentMemories': 'Recent Memories', 'sec.recentOutputs': 'Recent Works', 'sec.commands': 'Quick Commands',
           'sec.appearance': 'Appearance', 'sec.dirs': 'Directories', 'sec.info': 'Plugin Info', 'sec.diagnostics': 'Diagnostics', 'sec.notifications': 'Notifications',
+          'sec.providers': 'Model Services',
+          'providers.hint': 'Bring your own OpenAI-compatible model service (DeepSeek / Kimi / Qwen / OpenAI / Ollama / vLLM…); each bot can use a different model.',
+          'provider.id': 'ID (lowercase letters, digits, dashes)', 'provider.name': 'Display name', 'provider.baseURL': 'Base URL',
+          'provider.apiKey': 'API Key', 'provider.models': 'Models (comma separated)', 'provider.defaultModel': 'Default model',
+          'provider.thinking': 'This service needs thinking disabled explicitly (dashscope / Qwen family)',
+          'provider.empty': 'No model service configured yet — fill in the form above to plug in your own model.',
+          'provider.default': 'Default', 'provider.builtin': 'Built-in', 'provider.modelsUnit': 'models', 'provider.noKey': 'no key',
+          'provider.err.required': 'ID and Base URL are required', 'provider.confirmDelete': 'Delete model service “{name}”? Bots using it fall back to the default model.',
+          'toast.provider.saved': 'Model service saved', 'toast.provider.deleted': 'Model service deleted', 'toast.fail.providers': 'Model service operation failed',
           'btn.refresh': 'Refresh', 'btn.addMemory': 'Add Memory', 'btn.addSchedule': 'New Task', 'btn.saveConfig': 'Save Directories', 'btn.resetConfig': 'Reset Defaults',
           'btn.copyDiag': 'Copy Diagnostics', 'btn.cancel': 'Cancel', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.create': 'Create', 'btn.close': 'Close', 'btn.edit': 'Edit', 'btn.openFile': 'Open File',
           'btn.clearChat': 'Clear', 'btn.send': 'Send',
@@ -1279,6 +1344,10 @@
         outputsStatus: $('outputs-status'), gallery: $('gallery'),
         cfgMemoryDir: $('cfg-memory-dir'), cfgOutputsDir: $('cfg-outputs-dir'),
         saveConfig: $('save-config'), resetConfig: $('reset-config'),
+        providerList: $('provider-list'), providerForm: $('provider-form'),
+        pvId: $('pv-id'), pvName: $('pv-name'), pvBase: $('pv-base'), pvKey: $('pv-key'),
+        pvModels: $('pv-models'), pvDefault: $('pv-default'), pvThinking: $('pv-thinking'),
+        pvClear: $('pv-clear'),
         infoPanelVersion: $('info-panel-version'), infoMaigeVersion: $('info-maige-version'),
         infoMemoryDir: $('info-memory-dir'), infoOutputsDir: $('info-outputs-dir'),
         confirmMask: $('confirm-mask'), confirmText: $('confirm-text'), confirmCancel: $('confirm-cancel'), confirmOk: $('confirm-ok'),
@@ -1941,16 +2010,22 @@
           els.botAvatar.appendChild(avatarEl(bot.key, bot.displayName, 48));
           els.botTitle.textContent = bot.displayName + (bot.key === 'maige' ? ' · Chief' : '');
           els.botRole.textContent = bot.role || bot.key;
-          // 模型下拉：默认 + 可用聊天模型
+          // 模型下拉：默认 + 按模型服务分组的模型列表（自带模型）
           var opt0 = document.createElement('option');
           opt0.value = '';
-          opt0.textContent = t('bot.defaultModel', { model: models['default'] });
+          opt0.textContent = t('bot.defaultModel', { model: models['default'] || '-' });
           els.botModel.appendChild(opt0);
-          (models.models || []).forEach(function (m) {
-            var opt = document.createElement('option');
-            opt.value = m;
-            opt.textContent = m;
-            els.botModel.appendChild(opt);
+          (models.providers || []).forEach(function (p) {
+            if (!p.models || !p.models.length) return;
+            var group = document.createElement('optgroup');
+            group.label = p.name + (p.builtin ? '' : ' · ' + p.id);
+            p.models.forEach(function (m) {
+              var opt = document.createElement('option');
+              opt.value = p.id + '/' + m;
+              opt.textContent = m;
+              group.appendChild(opt);
+            });
+            els.botModel.appendChild(group);
           });
           els.botModel.value = bot.modelOverride || '';
           // 能力包勾选
@@ -2951,8 +3026,113 @@
       }
 
       // ---------- 设置 ----------
+      // ---------- 模型服务（自带模型） ----------
+      var providerItems = [];
+      function providerPayload() {
+        return {
+          id: els.pvId.value.trim().toLowerCase(),
+          name: els.pvName.value.trim(),
+          baseURL: els.pvBase.value.trim(),
+          apiKey: els.pvKey.value,
+          models: els.pvModels.value.split(/[,\s]+/).map(function (s) { return s.trim(); }).filter(Boolean),
+          defaultModel: els.pvDefault.value.trim(),
+          thinking: els.pvThinking.checked,
+        };
+      }
+      function clearProviderForm() {
+        els.providerForm.reset();
+        els.pvId.value = ''; els.pvName.value = ''; els.pvBase.value = '';
+        els.pvKey.value = ''; els.pvModels.value = ''; els.pvDefault.value = '';
+        els.pvThinking.checked = false;
+      }
+      function loadProviderIntoForm(p) {
+        els.pvId.value = p.id;
+        els.pvName.value = p.name || '';
+        els.pvBase.value = p.baseURL || '';
+        els.pvKey.value = ''; // key 不回显（服务端也不返回）
+        els.pvModels.value = (p.models || []).join(', ');
+        els.pvDefault.value = p.defaultModel || '';
+        els.pvThinking.checked = !!p.thinking;
+        els.pvId.focus();
+      }
+      function renderProviders(items, defId) {
+        providerItems = items;
+        els.providerList.innerHTML = '';
+        if (!items.length) {
+          var empty = document.createElement('div');
+          empty.className = 'field-hint';
+          empty.textContent = t('provider.empty');
+          els.providerList.appendChild(empty);
+          return;
+        }
+        items.forEach(function (p) {
+          var row = document.createElement('div');
+          row.className = 'provider-row';
+          var nm = document.createElement('span');
+          nm.className = 'pv-name';
+          nm.textContent = p.name;
+          row.appendChild(nm);
+          if (p.id === defId) {
+            var def = document.createElement('span');
+            def.className = 'provider-badge';
+            def.textContent = t('provider.default');
+            row.appendChild(def);
+          }
+          if (p.builtin) {
+            var bi = document.createElement('span');
+            bi.className = 'provider-badge';
+            bi.textContent = t('provider.builtin');
+            row.appendChild(bi);
+          }
+          var meta = document.createElement('span');
+          meta.className = 'pv-meta';
+          meta.textContent = p.baseURL + ' · ' + (p.models || []).length + ' ' + t('provider.modelsUnit')
+            + (p.hasKey ? '' : ' · ' + t('provider.noKey'));
+          row.appendChild(meta);
+          if (!p.builtin) {
+            var actions = document.createElement('span');
+            actions.className = 'pv-actions';
+            var edit = document.createElement('button');
+            edit.type = 'button'; edit.className = 'btn btn-sm';
+            edit.textContent = t('btn.edit');
+            edit.addEventListener('click', function () { loadProviderIntoForm(p); });
+            actions.appendChild(edit);
+            var del = document.createElement('button');
+            del.type = 'button'; del.className = 'btn btn-sm';
+            del.textContent = t('btn.delete');
+            del.addEventListener('click', function () { removeProvider(p); });
+            actions.appendChild(del);
+            row.appendChild(actions);
+          }
+          els.providerList.appendChild(row);
+        });
+      }
+      function loadProviders() {
+        return api('/api/providers').then(function (d) {
+          renderProviders(d.items || [], d.defaultProvider);
+        }).catch(function () { showToast(t('toast.fail.providers')); });
+      }
+      function saveProvider() {
+        var payload = providerPayload();
+        if (!payload.id || !payload.baseURL) { showToast(t('provider.err.required')); return; }
+        api('/api/providers', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+        }).then(function () {
+          showToast(t('toast.provider.saved'));
+          clearProviderForm();
+          return loadProviders();
+        }).catch(function () { showToast(t('toast.fail.providers')); });
+      }
+      function removeProvider(p) {
+        if (!window.confirm(t('provider.confirmDelete', { name: p.name }))) return;
+        api('/api/providers?id=' + encodeURIComponent(p.id), { method: 'DELETE' })
+          .then(function () { showToast(t('toast.provider.deleted')); return loadProviders(); })
+          .catch(function () { showToast(t('toast.fail.providers')); });
+      }
+
       function loadSettings() {
         setTheme(themeOverride);
+        loadProviders();
         api('/api/info').then(function (info) {
           els.cfgMemoryDir.value = info.memoryDir;
           els.cfgOutputsDir.value = info.outputsDir;
@@ -3119,6 +3299,8 @@
       els.refreshOutputs.addEventListener('click', loadOutputs);
       els.saveConfig.addEventListener('click', saveConfig);
       els.resetConfig.addEventListener('click', resetConfig);
+      els.providerForm.addEventListener('submit', function (e) { e.preventDefault(); saveProvider(); });
+      els.pvClear.addEventListener('click', clearProviderForm);
       els.refreshSchedules.addEventListener('click', loadSchedules);
       els.addSchedule.addEventListener('click', openScheduleForm);
       els.scheduleForm.addEventListener('submit', function (e) { e.preventDefault(); submitSchedule(); });

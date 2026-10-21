@@ -5,8 +5,9 @@ import { readFile, readdir, stat, writeFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as minimax from '../minimax.mjs';
 import { resolveWorkspace } from './fs.mjs';
-import { MAX_TOKENS_LIMIT } from './roles.mjs';
+import { chatModelsOf } from './host.mjs';
 import { NON_CHAT_MODEL } from './llm.mjs';
+import { MAX_TOKENS_LIMIT } from './roles.mjs';
 import { TASK_KINDS, AUTO_READY_KINDS } from './tasks.mjs';
 
 /**
@@ -20,13 +21,16 @@ import { TASK_KINDS, AUTO_READY_KINDS } from './tasks.mjs';
  * @param {Function} deps.writeTask
  * @param {Function} deps.notify
  * @param {Function} deps.webSearch
- * @param {any} deps.llm                        模型配置（取可用模型清单）
+ * @param {() => any[]} deps.listProviders     可用 provider 列表（自带模型）
+ * @param {Function} deps.splitModelRef         'provider/model' 解析
+ * @param {Function} deps.joinModelRef         拼回引用格式
  * @param {string} deps.workspaceRoot
  */
 export function createToolExecutor(deps) {
   const {
     getConfig, updateConfig, context, appendMessage, getMembers,
-    hireBot, writeTask, notify, webSearch, llm, workspaceRoot,
+    hireBot, writeTask, notify, webSearch, workspaceRoot,
+    listProviders, splitModelRef, joinModelRef,
   } = deps;
 
   /** 执行工具：读/列限定工作区，写只进作品库，搜索走 webSearch。返回 { note } */
@@ -121,7 +125,8 @@ export function createToolExecutor(deps) {
         if (tool.arg === 'maige') return { note: `${speakerName} 不能改自己的配置（防自我开挂），要改麦格得 Mike 来` };
         const members = await getMembers();
         if (!members.some((m) => m.key === tool.arg)) return { note: `${speakerName} 想配的 ${tool.arg} 不在团队里` };
-        const chatModels = (llm?.models ?? []).filter((m) => !NON_CHAT_MODEL.test(m));
+        const providers = listProviders();
+        const defId = providers.find((p) => !p.builtin)?.id || providers[0]?.id || '';
         const nextModels = { ...(config.models || {}) };
         const nextMaxTokens = { ...(config.maxTokens || {}) };
         if (tool.field === 'maxTokens') {
@@ -129,8 +134,15 @@ export function createToolExecutor(deps) {
           if (!Number.isInteger(n) || n < 128 || n > MAX_TOKENS_LIMIT) return { note: `${speakerName} 给 ${tool.arg} 配的 maxTokens「${tool.value}」越界（128~${MAX_TOKENS_LIMIT}）` };
           nextMaxTokens[tool.arg] = n;
         } else if (tool.field === 'model') {
-          if (!chatModels.includes(tool.value)) return { note: `${speakerName} 给 ${tool.arg} 配的模型「${tool.value}」不在当前 provider 的对话模型里` };
-          nextModels[tool.arg] = tool.value;
+          // 值格式 'provider/model'（也接受裸 model id → 落到默认 provider）
+          const parsed = splitModelRef(tool.value, defId);
+          const provider = providers.find((p) => p.id === parsed.providerId);
+          if (!provider) return { note: `${speakerName} 想用的模型服务「${parsed.providerId}」不存在` };
+          const chatModels = chatModelsOf(provider, NON_CHAT_MODEL);
+          if (chatModels.length && !chatModels.includes(parsed.model)) {
+            return { note: `${speakerName} 给 ${tool.arg} 配的模型「${parsed.model}」不在 ${provider.name} 的模型列表里` };
+          }
+          nextModels[tool.arg] = joinModelRef(provider.id, parsed.model);
         }
         await updateConfig({ models: nextModels, maxTokens: nextMaxTokens });
         context.logger.info('maige-bot.bot.config-by-chief');

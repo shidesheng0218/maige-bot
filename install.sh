@@ -30,8 +30,11 @@ say "前置检查"
 command -v node >/dev/null 2>&1 || die "需要 Node.js ≥ 18，请先安装"
 NODE_V=$(node -v | sed 's/v//' | cut -d. -f1)
 [ "$NODE_V" -ge 18 ] || die "Node 版本太低（$(node -v)），需要 ≥ 18"
-[ -d "$MINIMAX_HOME" ] || warn "~/.minimax 不存在——MiniMax Code 可能没装。继续装，但插件不会生效。"
-[ -d "$MINIMAX_HOME" ] && echo "  Node $(node -v) · ~/.minimax 在"
+if [ -d "$MINIMAX_HOME" ]; then
+  echo "  Node $(node -v) · 检测到 MiniMax Code（~/.minimax）"
+else
+  warn "没检测到 MiniMax Code——插件部分不会生效，但独立面板可用（自带模型即可）"
+fi
 
 # ---------- 铺插件 ----------
 say "铺插件到 $PLUGIN_DIR"
@@ -64,10 +67,14 @@ cat <<EOF
 
   下一步：
   1. 打开 MiniMax Code，新会话生效（叫一声「麦格」）
-  2. 可选：配 MiniMax API key 解锁文生图/语音——面板设置页填，或：
+  2. 配模型（二选一）：
+     · 面板里配：打开面板 → 设置 → 模型服务，填 Base URL / API Key / 模型列表
+     · 环境变量：export MAIGE_LLM_BASE_URL=... MAIGE_LLM_API_KEY=... MAIGE_LLM_MODELS=...
+     任何 OpenAI 兼容服务都行（DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…）
+  3. 可选：配 MiniMax API key 解锁文生图/语音——面板设置页填，或：
        curl -X PUT http://127.0.0.1:17878/api/config -H 'content-type: application/json' -d '{"minimaxApiKey":"sk-..."}'
-  3. 独立运行（脱离 MCode）：node miniapps/maige-bot/miniapp/node/standalone.mjs
-  4. 卸载：./install.sh --uninstall
+  4. 独立运行（脱离 MCode）：node miniapps/maige-bot/miniapp/node/standalone.mjs
+  5. 卸载：./install.sh --uninstall
 
   项目根默认 \$HOME/Documents/minimax项目，用 MAIGE_ROOT 环境变量覆盖。
   文档：README.md · maige-bot/README.md · maige-bot/AGENTS.md

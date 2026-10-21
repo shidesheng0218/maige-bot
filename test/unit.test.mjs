@@ -14,6 +14,10 @@ import { maxTokensForRole } from '../miniapps/maige-bot/miniapp/node/core/roles.
 import { parseTask, serializeTask, TASK_TRANSITIONS } from '../miniapps/maige-bot/miniapp/node/core/tasks.mjs';
 import { resolveWorkspace, resolveInside, listDir } from '../miniapps/maige-bot/miniapp/node/core/fs.mjs';
 import { resolveHostPaths, parseLlmYaml, loadLlmConfig } from '../miniapps/maige-bot/miniapp/node/core/host.mjs';
+import {
+  normalizeProvider, mergeProviders, defaultProviderId, splitModelRef, joinModelRef, chatModelsOf,
+} from '../miniapps/maige-bot/miniapp/node/core/host.mjs';
+import { buildChatBody, buildChatHeaders } from '../miniapps/maige-bot/miniapp/node/core/llm.mjs';
 
 // ---------- 工具指令解析 ----------
 test('parseTool: 支持全部工具指令', () => {
@@ -199,4 +203,79 @@ test('loadLlmConfig: MAIGE_LLM_* 环境变量优先于 config.yaml', () => {
   assert.equal(cfg.apiKey, 'k');
   assert.deepEqual(cfg.models, ['m1', 'm2']);
   assert.equal(cfg.source, 'env');
+});
+
+// ---------- 自带模型（provider） ----------
+test('normalizeProvider: 白名单化字段，拒绝非法 id/baseURL', () => {
+  const p = normalizeProvider({
+    id: 'OpenAI', name: ' OpenAI ', baseURL: 'https://api.openai.com/v1/',
+    apiKey: 'sk-x', models: ['gpt-4o', '', 'gpt-4o-mini'], defaultModel: 'gpt-4o',
+  });
+  assert.equal(p.id, 'openai');
+  assert.equal(p.name, 'OpenAI');
+  assert.equal(p.baseURL, 'https://api.openai.com/v1');
+  assert.deepEqual(p.models, ['gpt-4o', 'gpt-4o-mini']);
+  assert.equal(p.defaultModel, 'gpt-4o');
+  assert.equal(p.thinking, false);
+  assert.equal(p.streamUsage, true);
+  assert.equal(normalizeProvider({ id: 'Bad Id', baseURL: 'https://x.dev' }), null);
+  assert.equal(normalizeProvider({ id: 'ok', baseURL: 'ftp://x.dev' }), null);
+  assert.equal(normalizeProvider({ id: 'ok' }), null);
+});
+
+test('mergeProviders: 用户配置优先，内建去重', () => {
+  const list = mergeProviders(
+    [{ id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', apiKey: 'k', models: ['gpt-4o'] }],
+    { baseURL: 'https://dashscope/v1', apiKey: 'dk', models: ['kimi-k3'] },
+    { baseURL: 'https://env/v1', apiKey: 'ek', models: ['e1'] },
+  );
+  assert.deepEqual(list.map((p) => p.id), ['openai', 'mcode', 'env']);
+  assert.equal(list[1].builtin, true);
+  assert.equal(list[1].thinking, true); // dashscope 系需要显式关思考
+  assert.equal(defaultProviderId(list), 'openai');
+  // 同 id 去重（用户配置不会被内建覆盖）
+  const dup = mergeProviders([{ id: 'mcode', baseURL: 'https://mine.dev/v1', apiKey: 'x', models: ['q'] }], { baseURL: 'https://d/v1', apiKey: 'dk', models: ['kimi-k3'] }, null);
+  assert.equal(dup.length, 1);
+  assert.equal(dup[0].baseURL, 'https://mine.dev/v1');
+});
+
+test('splitModelRef/joinModelRef: provider/model 与裸模型兼容', () => {
+  assert.deepEqual(splitModelRef('openai/gpt-4o', 'def'), { providerId: 'openai', model: 'gpt-4o' });
+  assert.deepEqual(splitModelRef('gpt-4o', 'def'), { providerId: 'def', model: 'gpt-4o' });
+  assert.equal(splitModelRef('', 'def'), null);
+  assert.equal(joinModelRef('openai', 'gpt-4o'), 'openai/gpt-4o');
+});
+
+test('chatModelsOf: 过滤图像/语音等非对话模型', () => {
+  const p = { models: ['gpt-4o', 'qwen-image-3.0-pro', 'speech-2.8-hd', 'gpt-4o-mini'] };
+  assert.deepEqual(chatModelsOf(p), ['gpt-4o', 'gpt-4o-mini']);
+});
+
+test('buildChatBody: 思考参数与 usage 统计按 provider 能力开关', () => {
+  const plain = { baseURL: 'x', apiKey: 'k', models: [], thinking: false, streamUsage: true };
+  const body = buildChatBody(plain, { system: 's', userContent: 'u', model: 'm', maxTokens: 100 });
+  assert.equal(body.model, 'm');
+  assert.equal(body.max_tokens, 100);
+  assert.equal('thinking' in body, false);
+  assert.equal('stream_options' in body, false);
+
+  const dashscope = { ...plain, thinking: true };
+  const body2 = buildChatBody(dashscope, { system: 's', userContent: 'u', stream: true });
+  assert.deepEqual(body2.thinking, { type: 'disabled' });
+  assert.deepEqual(body2.stream_options, { include_usage: true });
+
+  const noUsage = { ...plain, streamUsage: false };
+  const body3 = buildChatBody(noUsage, { system: 's', userContent: 'u', stream: true });
+  assert.equal('stream_options' in body3, false);
+});
+
+test('buildChatHeaders: 鉴权头可配（Azure 之类用 api-key）', () => {
+  assert.deepEqual(
+    buildChatHeaders({ apiKey: 'k', authHeader: 'authorization', authPrefix: 'Bearer ' }),
+    { 'content-type': 'application/json', authorization: 'Bearer k' },
+  );
+  assert.deepEqual(
+    buildChatHeaders({ apiKey: 'k', authHeader: 'api-key', authPrefix: '' }),
+    { 'content-type': 'application/json', 'api-key': 'k' },
+  );
 });

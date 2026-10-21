@@ -31,9 +31,11 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   带 body 的写请求必须是 `application/json`。跨站简单请求因此无法触发任意动作
 - **视觉基线**：`--mcode-*` CSS 变量 + `prefers-color-scheme`；禁 emoji、禁远程资源；
   交互元素带 aria-label/可见文本
-- **群聊引擎**：模型走宿主适配层（`core/host.mjs`：config.yaml 的 OpenAI 兼容 provider，
-  或 `MAIGE_LLM_BASE_URL`/`MAIGE_LLM_API_KEY`/`MAIGE_LLM_MODELS`）；`thinking: {type:'disabled'}`
-  （kimi-k3 是 reasoning 模型，不关思考 content 为空）；接力用 `[[CALL:key]]`，同棒最多 3 人并行、一轮最多 4 棒
+- **群聊引擎**：模型走**自带模型**层（`core/host.mjs` + `config.providers`）：用户配置的 provider 优先，
+  其次内建 `mcode`（config.yaml 的 OpenAI 兼容 provider），最后 `env`（`MAIGE_LLM_*`）；
+  `thinking: {type:'disabled'}` 只发给 `thinking:true` 的 provider（dashscope/Qwen 系，否则 content 为空），
+  其余 OpenAI 兼容端点不收这个陌生字段；`stream_options` 同理按 provider 开关；
+  接力用 `[[CALL:key]]`，同棒最多 3 人并行、一轮最多 4 棒
 - **编排**：单聊/群聊/圆桌（`圆桌：主题`）/攻坚（`攻坚：任务`）都在 `core/orchestrator.mjs`；
   攻坚最多 8 棒，允许回头叫已发言者
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
@@ -42,7 +44,10 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 - **压缩**：会话超阈值把旧消息压成纪要（env MAIGE_COMPRESS_* 可调）；`media`/`card` 消息用占位描述，
   不把空行喂给模型
 - **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]`
-  由 `core/tools.mjs` 解析执行；读/列限定工作区，写只进作品库；不给 shell
+  由 `core/tools.mjs` 解析执行；读/列限定工作区，写只进作品库；不给 shell；
+  `[[CONFIG:key:model:值]]` 的值格式是 `provider/model`（裸模型 id 落到默认 provider）
+- **自带模型**：provider 存 `config.providers`（id/name/baseURL/apiKey/models/defaultModel/thinking），
+  增删改走 `GET/POST/PUT/DELETE /api/providers`；key 不回显（只回 `hasKey`）；`mcode`/`env` 为保留 id
 - **输出可见**：搜索结果/作品/整活单用 `card` 消息（结构化数据，文案由客户端 i18n 渲染），
   生成图/语音用 `media` 消息内联展示
 - **流式**：callLlm 传 onChunk 走 SSE，增量进 conv.draft；客户端自适应轮询（忙 700ms/闲 2s）

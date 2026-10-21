@@ -82,3 +82,100 @@ export function loadLlmConfig(env = process.env, paths = resolveHostPaths(env)) 
     return null;
   }
 }
+
+// ================= 自带模型（多 provider） =================
+
+export const PROVIDER_ID = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** 规范化一个 provider（白名单化：只保留允许的字段与安全取值） */
+export function normalizeProvider(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id ?? '').trim().toLowerCase();
+  if (!PROVIDER_ID.test(id)) return null;
+  const baseURL = String(raw.baseURL ?? '').trim().replace(/\/$/, '');
+  if (!baseURL || !/^https?:\/\//i.test(baseURL)) return null;
+  const models = Array.isArray(raw.models)
+    ? raw.models.map((m) => String(m).trim()).filter((m) => m && m.length <= 64).slice(0, 50)
+    : [];
+  const defaultModel = String(raw.defaultModel ?? '').trim() || models[0] || '';
+  if (!models.length && defaultModel) models.push(defaultModel); // 只填默认模型也可用
+  return {
+    id,
+    name: String(raw.name ?? '').trim().slice(0, 40) || id,
+    baseURL,
+    apiKey: String(raw.apiKey ?? '').trim(),
+    models,
+    defaultModel,
+    // 思考参数（dashscope/Qwen 系需要；OpenAI 兼容端点普遍不认，发了会 400）
+    thinking: raw.thinking === true,
+    // 是否在流式请求里带 stream_options（要 usage 统计；个别自建服务会拒绝未知字段）
+    streamUsage: raw.streamUsage !== false,
+    // 鉴权头（多数服务是 authorization: Bearer；Azure 之类是 api-key）
+    authHeader: /^[A-Za-z0-9-]{1,40}$/.test(String(raw.authHeader ?? '')) ? String(raw.authHeader) : 'authorization',
+    authPrefix: typeof raw.authPrefix === 'string' ? String(raw.authPrefix) : 'Bearer ',
+    builtin: raw.builtin === true,
+  };
+}
+
+/** 合并用户配置的 provider 与内建 provider（MCode config.yaml / 环境变量），返回按 id 去重的列表 */
+export function mergeProviders(userProviders, builtinMCode, envProvider) {
+  const out = [];
+  const seen = new Set();
+  const push = (p) => {
+    const n = p && normalizeProvider(p);
+    if (!n || seen.has(n.id)) return;
+    seen.add(n.id);
+    out.push(n);
+  };
+  for (const p of Array.isArray(userProviders) ? userProviders : []) push(p);
+  if (builtinMCode) {
+    const mModels = builtinMCode.models || [];
+    // 内建默认模型：优先 kimi-k3（面板历史默认），否则列表第一个
+    const mDefault = mModels.includes('kimi-k3') ? 'kimi-k3' : (mModels[0] || '');
+    push({
+      id: 'mcode', name: 'MiniMax Code', baseURL: builtinMCode.baseURL, apiKey: builtinMCode.apiKey,
+      models: mModels, defaultModel: mDefault,
+      thinking: true, // dashscope 系：必须显式关思考，否则 reasoning 模型 content 为空
+      builtin: true,
+    });
+  }
+  if (envProvider) {
+    push({
+      id: 'env', name: '环境变量', baseURL: envProvider.baseURL, apiKey: envProvider.apiKey,
+      models: envProvider.models || [], defaultModel: envProvider.models?.[0] || '',
+      thinking: false, builtin: true,
+    });
+  }
+  return out;
+}
+
+/** 默认 provider：优先用户配置的第一条，其次内建 */
+export function defaultProviderId(providers) {
+  if (!providers.length) return '';
+  const user = providers.find((p) => !p.builtin);
+  return (user || providers[0]).id;
+}
+
+/** 解析模型引用：'provider/model' 或裸 model id（旧格式，向后兼容） */
+export function splitModelRef(value, fallbackProviderId) {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  const i = v.indexOf('/');
+  if (i > 0) {
+    const providerId = v.slice(0, i).trim();
+    const model = v.slice(i + 1).trim();
+    if (providerId && model) return { providerId, model };
+  }
+  return { providerId: fallbackProviderId || '', model: v };
+}
+
+/** 拼回引用格式 */
+export function joinModelRef(providerId, model) {
+  return `${providerId}/${model}`;
+}
+
+/** provider 的对话模型（过滤图像/语音/音乐/视频/向量类模型——它们不能用来聊天） */
+export function chatModelsOf(provider, nonChatPattern) {
+  const re = nonChatPattern || /image|tts|speech|voice|music|video|embedding|vl-/i;
+  return (provider?.models || []).filter((m) => !re.test(m));
+}
