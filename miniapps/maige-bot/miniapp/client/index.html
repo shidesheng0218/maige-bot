@@ -542,6 +542,7 @@
         <div class="chat-peer" id="chat-peer"></div>
         <div class="chat-head-actions">
           <input class="input chat-search" id="chat-search" type="text" placeholder="搜索消息…" data-i18n-ph="search.chat" data-i18n-aria="search.chat" aria-label="搜索消息" />
+          <button class="btn btn-text" id="chat-stop" data-i18n="btn.stop" hidden>停止</button>
           <button class="btn btn-text" id="chat-export" data-i18n="btn.export">导出</button>
           <button class="btn btn-text btn-danger" id="chat-clear" data-i18n="btn.clearChat">清空</button>
         </div>
@@ -1026,7 +1027,8 @@
           'toast.provider.saved': '模型服务已保存', 'toast.provider.deleted': '模型服务已删除', 'toast.fail.providers': '模型服务操作失败',
           'btn.refresh': '刷新', 'btn.addMemory': '新增记忆', 'btn.addSchedule': '新建任务', 'btn.saveConfig': '保存目录设置', 'btn.resetConfig': '恢复默认',
           'btn.copyDiag': '复制诊断信息', 'btn.cancel': '取消', 'btn.delete': '删除', 'btn.save': '保存', 'btn.create': '创建', 'btn.close': '关闭', 'btn.edit': '编辑', 'btn.openFile': '打开原文件',
-          'btn.clearChat': '清空', 'btn.send': '发送',
+          'btn.clearChat': '清空', 'btn.send': '发送', 'btn.stop': '停止',
+          'toast.stopped': '已停止当前回合', 'toast.stopIdle': '当前没有在跑的回合', 'toast.fail.stop': '停止失败',
           'theme.auto': '跟随系统', 'theme.light': '浅色', 'theme.dark': '深色',
           'lang.auto': '跟随浏览器', 'lang.zh': '中文', 'lang.en': 'English',
           'label.memoryDir': '记忆目录（绝对路径）', 'label.outputsDir': '作品目录（绝对路径）',
@@ -1148,7 +1150,8 @@
           'toast.provider.saved': 'Model service saved', 'toast.provider.deleted': 'Model service deleted', 'toast.fail.providers': 'Model service operation failed',
           'btn.refresh': 'Refresh', 'btn.addMemory': 'Add Memory', 'btn.addSchedule': 'New Task', 'btn.saveConfig': 'Save Directories', 'btn.resetConfig': 'Reset Defaults',
           'btn.copyDiag': 'Copy Diagnostics', 'btn.cancel': 'Cancel', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.create': 'Create', 'btn.close': 'Close', 'btn.edit': 'Edit', 'btn.openFile': 'Open File',
-          'btn.clearChat': 'Clear', 'btn.send': 'Send',
+          'btn.clearChat': 'Clear', 'btn.send': 'Send', 'btn.stop': 'Stop',
+          'toast.stopped': 'Turn stopped', 'toast.stopIdle': 'No turn is running', 'toast.fail.stop': 'Failed to stop',
           'theme.auto': 'System', 'theme.light': 'Light', 'theme.dark': 'Dark',
           'lang.auto': 'Browser', 'lang.zh': '中文', 'lang.en': 'English',
           'label.memoryDir': 'Memory directory (absolute path)', 'label.outputsDir': 'Outputs directory (absolute path)',
@@ -1316,7 +1319,7 @@
         openAdmin: $('open-admin'), closeAdmin: $('close-admin'),
         chatPeer: $('chat-peer'), chatMessages: $('chat-messages'), chatTyping: $('chat-typing'),
         chatForm: $('chat-form'), chatInput: $('chat-input'), chatSend: $('chat-send'), chatClear: $('chat-clear'),
-        chatSearch: $('chat-search'), chatExport: $('chat-export'),
+        chatSearch: $('chat-search'), chatExport: $('chat-export'), chatStop: $('chat-stop'),
         chatAttach: $('chat-attach'), chatFile: $('chat-file'), chatMic: $('chat-mic'), attachPreview: $('attach-preview'),
         tabs: {
           overview: $('tab-overview'), team: $('tab-team'), memories: $('tab-memories'), outputs: $('tab-outputs'), caps: $('tab-caps'), tasks: $('tab-tasks'), schedules: $('tab-schedules'), settings: $('tab-settings')
@@ -1910,6 +1913,8 @@
           }
           // 每 3 次轮询刷新一次会话列表（侧栏预览 + 各会话的光圈状态）
           if (++pollTick % 3 === 0) loadConvs();
+          // 停止按钮：只有回合在跑时出现
+          if (els.chatStop) els.chatStop.hidden = !data.running;
           return data;
         }).catch(function () { return null; /* 轮询失败静默，下轮重试 */ });
       }
@@ -3207,6 +3212,15 @@
       els.refreshTeam.addEventListener('click', loadTeam);
       els.chatForm.addEventListener('submit', function (e) { e.preventDefault(); sendChat(); });
       els.chatClear.addEventListener('click', clearChat);
+      els.chatStop.addEventListener('click', function () {
+        api('/api/chat/stop', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ conv: currentConv }),
+        }).then(function (r) {
+          showToast(r.stopped ? t('toast.stopped') : t('toast.stopIdle'));
+          els.chatStop.hidden = true;
+        }).catch(function () { showToast(t('toast.fail.stop')); });
+      });
       els.chatExport.addEventListener('click', function () {
         api('/api/chat/export', {
           method: 'POST', headers: { 'content-type': 'application/json' },

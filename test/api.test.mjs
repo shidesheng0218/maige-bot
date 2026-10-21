@@ -226,3 +226,56 @@ test('模型清单：按 provider 分组给出', async () => {
   assert.ok(m.default.includes('/'));
   await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE' });
 });
+
+test('停止：能中断正在跑的回合，并干净收尾', async () => {
+  // 起一个"慢"模型服务：收到请求后 8 秒才回，用来模拟长回合
+  const { createServer } = await import('node:http');
+  let hits = 0;
+  const slow = createServer((req, res) => {
+    hits++;
+    setTimeout(() => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '慢服务终于回话了' } }] }));
+    }, 8000);
+  });
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  const slowPort = slow.address().port;
+  try {
+    // 新增 provider 后面板立刻可用（llmReady 动态判定）
+    const before = await (await get('/api/diagnostics')).json();
+    assert.equal(before.llmReady, false, '本用例开始前应无模型');
+    assert.ok((await send('/api/providers', 'POST', {
+      id: 'slow', name: '慢服务', baseURL: `http://127.0.0.1:${slowPort}/v1`,
+      apiKey: 'k', models: ['slow-chat'], defaultModel: 'slow-chat',
+    })).ok);
+    const after = await (await get('/api/diagnostics')).json();
+    assert.equal(after.llmReady, true, '新增 provider 后应立即可用');
+    assert.ok((await send('/api/bot', 'PUT', { key: 'maige', model: 'slow/slow-chat' })).ok);
+
+    // 发起一轮，然后立刻停
+    assert.ok((await send('/api/chat/send', 'POST', { conv: 'chief', text: '慢慢说' })).ok);
+    await new Promise((r) => setTimeout(r, 600));
+    const stop = await (await send('/api/chat/stop', 'POST', { conv: 'chief' })).json();
+    assert.equal(stop.stopped, true, '应确实中止了正在跑的回合');
+
+    // 收尾：出现「已停止」系统消息，且慢服务没把回复送进来
+    const deadline = Date.now() + 6000;
+    let msgs = [];
+    while (Date.now() < deadline) {
+      msgs = (await (await get('/api/chat/messages?conv=chief')).json()).messages;
+      if (msgs.some((m) => m.kind === 'system' && m.text.includes('已停止'))) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    assert.ok(msgs.some((m) => m.kind === 'system' && m.text.includes('已停止')), '应出现「已停止当前回合」');
+    assert.ok(!msgs.some((m) => m.kind === 'agent' && m.text.includes('慢服务终于回话了')), '被中止的回复不应出现');
+    assert.ok(hits >= 1, '慢服务应收到过请求');
+
+    // 停止一个没在跑的会话：ok 但 stopped=false
+    const idle = await (await send('/api/chat/stop', 'POST', { conv: 'chief' })).json();
+    assert.equal(idle.stopped, false);
+  } finally {
+    await send('/api/bot', 'PUT', { key: 'maige', model: null });
+    await fetch(`${BASE}/api/providers?id=slow`, { method: 'DELETE' });
+    slow.close();
+  }
+});

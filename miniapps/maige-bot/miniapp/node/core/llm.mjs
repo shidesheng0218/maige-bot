@@ -34,11 +34,17 @@ export function buildChatHeaders(provider) {
 
 /** 调一次模型，返回 { text, usage }；失败抛错。model/maxTokens 为空时用 provider 默认。
  *  userContent 可为字符串或 content 数组（带图）；onChunk 传入时走 SSE 流式，逐段回调累计文本。
- *  兼容不支持流式的服务：流式拿不到内容时自动回退一次非流式请求。 */
-export async function callLlm(provider, system, userContent, model, onChunk, maxTokens) {
+ *  兼容不支持流式的服务：流式拿不到内容时自动回退一次非流式请求。
+ *  externalSignal：外部中止信号（面板的「停止」按钮），中止时抛 llm_aborted。 */
+export async function callLlm(provider, system, userContent, model, onChunk, maxTokens, externalSignal) {
   const request = async (stream) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 90000);
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) { clearTimeout(timer); throw new Error('llm_aborted'); }
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
     try {
       const r = await fetch(provider.baseURL + '/chat/completions', {
         method: 'POST',
@@ -85,8 +91,13 @@ export async function callLlm(provider, system, userContent, model, onChunk, max
         }
       }
       return { text: text.trim(), usage };
+    } catch (e) {
+      // 外部中止（用户点了停止）与超时区分开：前者不是故障
+      if (externalSignal && externalSignal.aborted) throw new Error('llm_aborted');
+      throw e;
     } finally {
       clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
     }
   };
 

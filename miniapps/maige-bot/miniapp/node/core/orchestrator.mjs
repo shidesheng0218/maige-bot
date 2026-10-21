@@ -11,9 +11,38 @@ export function createOrchestrator(deps) {
   const {
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
-    persistChat, logError, notify, context, llmReady,
+    persistChat, logError, notify, context,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
   } = deps;
+
+  // ---------- 回合控制器（支持「停止」） ----------
+  // 每个会话同时只跑一个回合；回合持有 AbortController，用户点停止 → 立刻中断正在进行的模型请求
+  const turnCtl = new Map();
+  function beginTurn(convId) {
+    const ctl = { controller: new AbortController(), cancelled: false };
+    turnCtl.set(convId, ctl);
+    return ctl;
+  }
+  function endTurn(convId) {
+    turnCtl.delete(convId);
+  }
+  /** 中止某会话正在跑的回合；没有在跑返回 false */
+  function cancelTurn(convId) {
+    const ctl = turnCtl.get(convId);
+    if (!ctl) return false;
+    ctl.cancelled = true;
+    try { ctl.controller.abort(); } catch { /* 已中止 */ }
+    return true;
+  }
+  function isCancelled(convId) {
+    return !!turnCtl.get(convId)?.cancelled;
+  }
+  function turnSignal(convId) {
+    return turnCtl.get(convId)?.controller?.signal;
+  }
+  function isRunning(convId) {
+    return turnCtl.has(convId);
+  }
 
   /** 消息的可读文本：media/card 消息没有正文，用占位描述，避免空行污染上下文与纪要 */
   function textOf(m) {
@@ -83,6 +112,7 @@ export function createOrchestrator(deps) {
         const userContent = img
           ? [{ type: 'text', text: transcript }, { type: 'image_url', image_url: { url: img } }]
           : transcript;
+        if (isCancelled(convId)) return null;
         const sel = resolveModelFor(speaker.key);
         if (!sel) throw new Error('no_model_provider');
         reply = await callLlm(
@@ -92,9 +122,11 @@ export function createOrchestrator(deps) {
           sel.model,
           (partial) => { conv.draft = { sender: speaker.key, name: speaker.displayName, text: partial }; },
           maxTokensFor(speaker.key),
+          turnSignal(convId),
         );
       } catch (e) {
         conv.draft = null;
+        if (e.message === 'llm_aborted' || isCancelled(convId)) return null; // 用户点了停止：不报错
         logError('chat', `${speaker.displayName}: ${e.message}`);
         await appendMessage(convId, 'system', '系统', `${speaker.displayName} 信号断了（${e.message}），这轮先到这里。`, 'system');
         return null;
@@ -128,6 +160,7 @@ export function createOrchestrator(deps) {
     const conv = getConv(convId);
     if (conv.running) return;
     conv.running = true;
+    beginTurn(convId);
     try {
       const members = await getMembers();
       const chief = members[0];
@@ -144,6 +177,9 @@ export function createOrchestrator(deps) {
     } finally {
       conv.typing = null;
       conv.running = false;
+      const cancelled = isCancelled(convId); // 先读状态再清（endTurn 会删掉控制器）
+      endTurn(convId);
+      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
     }
   }
 
@@ -153,6 +189,7 @@ export function createOrchestrator(deps) {
     const conv = getConv(convId);
     if (conv.running) return;
     conv.running = true;
+    beginTurn(convId);
     try {
       const members = await getMembers();
       const chief = members[0];
@@ -199,6 +236,9 @@ export function createOrchestrator(deps) {
     } finally {
       conv.typing = null;
       conv.running = false;
+      const cancelled = isCancelled(convId); // 先读状态再清（endTurn 会删掉控制器）
+      endTurn(convId);
+      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
     }
   }
 
@@ -206,10 +246,12 @@ export function createOrchestrator(deps) {
     const conv = getConv(convId);
     if (conv.running) return; // 进行中的回合结束时会看到新用户消息并续跑，不会漏答
     conv.running = true;
+    beginTurn(convId);
     try {
       const members = await getMembers();
       let forced = forcedSpeakerKey;
       for (;;) {
+        if (isCancelled(convId)) break; // 用户点了停止：不再续跑
         await maybeCompress(convId);
         if (convId === 'chief') {
           await runDmTurn(convId, { key: 'maige', displayName: '麦格' }, buildChiefSystem(members, 'dm'));
@@ -255,6 +297,7 @@ export function createOrchestrator(deps) {
           }
         }
         // 回合结束时若最后一条仍是用户消息（跑的时候又来了新消息），接着答
+        if (isCancelled(convId)) break;
         const last = conv.messages[conv.messages.length - 1];
         if (!last || last.kind !== 'user') break;
         forced = null;
@@ -262,8 +305,14 @@ export function createOrchestrator(deps) {
     } finally {
       conv.typing = null;
       conv.running = false;
+      const cancelled = isCancelled(convId);
+      endTurn(convId);
+      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
     }
   }
 
-  return { speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress, buildTranscript };
+  return {
+    speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress, buildTranscript,
+    cancelTurn, isRunning,
+  };
 }

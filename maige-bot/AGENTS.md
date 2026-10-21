@@ -38,6 +38,9 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   接力用 `[[CALL:key]]`，同棒最多 3 人并行、一轮最多 4 棒
 - **编排**：单聊/群聊/圆桌（`圆桌：主题`）/攻坚（`攻坚：任务`）都在 `core/orchestrator.mjs`；
   攻坚最多 8 棒，允许回头叫已发言者
+- **停止**：每个会话的回合持有 AbortController（`core/orchestrator.mjs` 的 beginTurn/cancelTurn），
+  `POST /api/chat/stop` 可中断正在进行的模型请求；`callLlm` 收外部 signal，中止抛 `llm_aborted`（不算故障）；
+  中止后不再续跑新回合，并落一条「已停止当前回合」系统消息
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
   会话里发「记住：…」确定性落盘
 - **搜索**：多源降级（必应 → 搜狗 → DuckDuckGo，各 7s 超时），只保留 http(s) 链接；失败要诚实

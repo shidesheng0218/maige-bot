@@ -45,7 +45,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.24.0';
+const PANEL_VERSION = '0.25.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -189,7 +189,8 @@ export async function start(context) {
     const provider = providers.find((p) => p.id === parsed.providerId) || def;
     return { provider, model: parsed.model || provider.defaultModel || provider.models?.[0] || '', ref };
   }
-  const llmReady = getProviders().length > 0;
+  // 动态判定：用户随时新增 provider，面板立刻可用（不是启动时算一次）
+  const llmReady = () => getProviders().length > 0;
   // 宿主连接器探针（仅 MCode 宿主注入；standalone 无）。启动时列出可用工具，供诊断页与后续 GENERATE 能力评估。
   let hostTools = [];
   if (context.hostConnector && typeof context.hostConnector.list === 'function') {
@@ -290,7 +291,7 @@ export async function start(context) {
       await persistSchedules().catch(() => {});
       await appendMessage('group', 'scheduler', '定时任务', `【${s.name}】到点`, 'system');
       notify('麦格 · 定时任务', `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在发言`);
-      if (llmReady) {
+      if (llmReady()) {
         await appendMessage('group', 'user', 'Mike', s.text, 'user');
         await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
       }
@@ -660,10 +661,11 @@ ${roster}
   // 多 agent 编排器（工厂注入运行时状态；实现见 core/orchestrator.mjs）
   const {
     speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress,
+    cancelTurn, isRunning,
   } = createOrchestrator({
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
-    persistChat, logError, notify, context, llmReady,
+    persistChat, logError, notify, context,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
   });
 
@@ -928,7 +930,7 @@ ${roster}
         if (m.key === 'maige') continue;
         items.push({ id: 'm:' + m.key, kind: 'member', key: m.key, name: m.displayName, role: m.role || '', preview: previewOf('m:' + m.key), typing: typingOf('m:' + m.key) });
       }
-      sendJson(res, 200, { items, llmReady });
+      sendJson(res, 200, { items, llmReady: llmReady() });
       return;
     }
 
@@ -941,7 +943,8 @@ ${roster}
         messages: conv.messages.filter((m) => m.id > after),
         typing: conv.typing,
         draft: conv.draft || null,
-        llmReady,
+        running: isRunning(convId),
+        llmReady: llmReady(),
       });
       return;
     }
@@ -1167,7 +1170,7 @@ ${roster}
     }
 
     if (method === 'POST' && path === '/api/chat/send') {
-      if (!llmReady) return sendError(res, 503, 'llm_unavailable');
+      if (!llmReady()) return sendError(res, 503, 'llm_unavailable');
       const body = await readBody(req);
       const convId = typeof body.conv === 'string' && CONV_ID.test(body.conv) ? body.conv : 'group';
       const text = String(body.text ?? '').trim();
@@ -1267,6 +1270,16 @@ ${roster}
       await persistChat().catch(() => {});
       context.logger.info('maige-bot.chat.cleared');
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // 停止当前回合（长回合刹车：立刻中断正在进行的模型请求）
+    if (method === 'POST' && path === '/api/chat/stop') {
+      const body = await readBody(req).catch(() => ({}));
+      const convId = typeof body.conv === 'string' && CONV_ID.test(body.conv) ? body.conv : 'group';
+      const stopped = cancelTurn(convId);
+      context.logger.info('maige-bot.chat.stopped', { conv: convId, stopped });
+      sendJson(res, 200, { ok: true, stopped });
       return;
     }
 
@@ -1387,7 +1400,7 @@ ${roster}
       }
       sendJson(res, 200, {
         panelVersion: PANEL_VERSION,
-        llmReady,
+        llmReady: llmReady(),
         minimaxConfigured: !!minimax.resolveApiKey(process.env, config.minimaxApiKey),
         hostConnector: { available: !!context.hostConnector, toolCount: hostTools.length, tools: hostTools },
         messageCount: Object.values(convs).reduce((n, c) => n + c.messages.length, 0),
