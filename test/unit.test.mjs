@@ -18,6 +18,7 @@ import {
   normalizeProvider, mergeProviders, defaultProviderId, splitModelRef, joinModelRef, chatModelsOf,
 } from '../miniapps/maige-bot/miniapp/node/core/host.mjs';
 import { buildChatBody, buildChatHeaders } from '../miniapps/maige-bot/miniapp/node/core/llm.mjs';
+import { normalizeBudget, budgetExceeded, effectiveMaxTokens, budgetReasonText, BUDGET_LIMITS } from '../miniapps/maige-bot/miniapp/node/core/budget.mjs';
 
 // ---------- 工具指令解析 ----------
 test('parseTool: 支持全部工具指令', () => {
@@ -278,4 +279,41 @@ test('buildChatHeaders: 鉴权头可配（Azure 之类用 api-key）', () => {
     buildChatHeaders({ apiKey: 'k', authHeader: 'api-key', authPrefix: '' }),
     { 'content-type': 'application/json', 'api-key': 'k' },
   );
+});
+
+// ---------- 回合预算 ----------
+test('normalizeBudget: 默认不限，环境变量兜底，越界收敛', () => {
+  assert.deepEqual(normalizeBudget(), { maxTokens: 0, maxMinutes: 0 });
+  assert.deepEqual(normalizeBudget(undefined, { MAIGE_TURN_MAX_TOKENS: '20000', MAIGE_TURN_MAX_MINUTES: '2.5' }),
+    { maxTokens: 20000, maxMinutes: 2.5 });
+  // 面板配置优先于环境变量
+  assert.deepEqual(normalizeBudget({ maxTokens: 5000, maxMinutes: 1 }, { MAIGE_TURN_MAX_TOKENS: '20000' }),
+    { maxTokens: 5000, maxMinutes: 1 });
+  // 非法值忽略，上限收敛
+  assert.deepEqual(normalizeBudget({ maxTokens: -5, maxMinutes: 'x' }), { maxTokens: 0, maxMinutes: 0 });
+  assert.deepEqual(normalizeBudget({ maxTokens: 1e12, maxMinutes: 1e6 }),
+    { maxTokens: BUDGET_LIMITS.maxTokens, maxMinutes: BUDGET_LIMITS.maxMinutes });
+});
+
+test('budgetExceeded: 按 token / 时长判定，0 表示不限', () => {
+  const b = { maxTokens: 1000, maxMinutes: 2 };
+  assert.equal(budgetExceeded(b, { tokens: 999, elapsedMs: 0 }), null);
+  assert.equal(budgetExceeded(b, { tokens: 1000, elapsedMs: 0 }), 'tokens');
+  assert.equal(budgetExceeded(b, { tokens: 0, elapsedMs: 2 * 60000 }), 'time');
+  assert.equal(budgetExceeded({ maxTokens: 0, maxMinutes: 0 }, { tokens: 9e9, elapsedMs: 9e9 }), null);
+  assert.equal(budgetExceeded(null, { tokens: 1 }), null);
+});
+
+test('effectiveMaxTokens: 单条上限与预算剩余取小；剩余不足 128 返回 0', () => {
+  assert.equal(effectiveMaxTokens(8000, { maxTokens: 0, maxMinutes: 0 }, 99999), 8000);
+  assert.equal(effectiveMaxTokens(8000, { maxTokens: 5000, maxMinutes: 0 }, 0), 5000);
+  assert.equal(effectiveMaxTokens(8000, { maxTokens: 5000, maxMinutes: 0 }, 4500), 500);
+  assert.equal(effectiveMaxTokens(8000, { maxTokens: 5000, maxMinutes: 0 }, 4900), 0);
+  assert.equal(effectiveMaxTokens(undefined, { maxTokens: 5000, maxMinutes: 0 }, 1000), 4000);
+});
+
+test('budgetReasonText: 区分 token / 时长 / 手动停止', () => {
+  assert.match(budgetReasonText('tokens', { maxTokens: 5000 }), /token 预算（5000）/);
+  assert.match(budgetReasonText('time', { maxMinutes: 2 }), /时长上限（2 分钟）/);
+  assert.match(budgetReasonText('user', {}), /已停止当前回合/);
 });

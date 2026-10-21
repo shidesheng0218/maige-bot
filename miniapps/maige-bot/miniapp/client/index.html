@@ -726,6 +726,16 @@
               <button class="btn" type="button" id="pv-clear" data-i18n="btn.clearForm">清空表单</button>
             </div>
           </form>
+          <h2 class="section-title" data-i18n="sec.budget">回合预算</h2>
+          <p class="field-hint" data-i18n="budget.hint">一轮对话（含多 bot 多轮）的上限，达到任一上限自动停止。0 = 不限。可填小数分钟（如 0.5 = 30 秒）。</p>
+          <div class="field">
+            <label for="cfg-budget-tokens" data-i18n="budget.tokens">每回合 token 上限</label>
+            <input class="input mono" id="cfg-budget-tokens" type="number" min="0" step="1000" placeholder="0" />
+          </div>
+          <div class="field">
+            <label for="cfg-budget-minutes" data-i18n="budget.minutes">每回合时长上限（分钟）</label>
+            <input class="input mono" id="cfg-budget-minutes" type="number" min="0" step="0.5" placeholder="0" />
+          </div>
           <h2 class="section-title" data-i18n="sec.dirs">目录</h2>
           <div class="field">
             <label for="cfg-memory-dir" data-i18n="label.memoryDir">记忆目录（绝对路径）</label>
@@ -1017,6 +1027,10 @@
           'sec.trend': 'Token 走势（近 14 天）', 'sec.rank': '成员消耗排行', 'sec.recentMemories': '最近记忆', 'sec.recentOutputs': '最近作品', 'sec.commands': '快捷口令',
           'sec.appearance': '外观', 'sec.dirs': '目录', 'sec.info': '插件信息', 'sec.diagnostics': '诊断', 'sec.notifications': '通知',
           'sec.providers': '模型服务',
+          'sec.budget': '回合预算',
+          'budget.hint': '一轮对话（含多 bot 多轮）的上限，达到任一上限自动停止。0 = 不限。可填小数分钟（如 0.5 = 30 秒）。',
+          'budget.tokens': '每回合 token 上限',
+          'budget.minutes': '每回合时长上限（分钟）',
           'providers.hint': '接你自己的 OpenAI 兼容模型服务（DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…）；每个 bot 可分别指定模型。',
           'provider.id': '标识（小写字母/数字/连字符）', 'provider.name': '显示名', 'provider.baseURL': 'Base URL',
           'provider.apiKey': 'API Key', 'provider.models': '模型列表（逗号分隔）', 'provider.defaultModel': '默认模型',
@@ -1140,6 +1154,10 @@
           'sec.trend': 'Token Trend (14 days)', 'sec.rank': 'Usage by Member', 'sec.recentMemories': 'Recent Memories', 'sec.recentOutputs': 'Recent Works', 'sec.commands': 'Quick Commands',
           'sec.appearance': 'Appearance', 'sec.dirs': 'Directories', 'sec.info': 'Plugin Info', 'sec.diagnostics': 'Diagnostics', 'sec.notifications': 'Notifications',
           'sec.providers': 'Model Services',
+          'sec.budget': 'Turn Budget',
+          'budget.hint': 'Limits per conversation turn (across bots and rounds); the turn stops at whichever is reached first. 0 = unlimited. Decimals allowed (0.5 = 30s).',
+          'budget.tokens': 'Max tokens per turn',
+          'budget.minutes': 'Max minutes per turn',
           'providers.hint': 'Bring your own OpenAI-compatible model service (DeepSeek / Kimi / Qwen / OpenAI / Ollama / vLLM…); each bot can use a different model.',
           'provider.id': 'ID (lowercase letters, digits, dashes)', 'provider.name': 'Display name', 'provider.baseURL': 'Base URL',
           'provider.apiKey': 'API Key', 'provider.models': 'Models (comma separated)', 'provider.defaultModel': 'Default model',
@@ -1346,6 +1364,7 @@
         outputsDirNote: $('outputs-dir-note'), refreshOutputs: $('refresh-outputs'),
         outputsStatus: $('outputs-status'), gallery: $('gallery'),
         cfgMemoryDir: $('cfg-memory-dir'), cfgOutputsDir: $('cfg-outputs-dir'),
+        cfgBudgetTokens: $('cfg-budget-tokens'), cfgBudgetMinutes: $('cfg-budget-minutes'),
         saveConfig: $('save-config'), resetConfig: $('reset-config'),
         providerList: $('provider-list'), providerForm: $('provider-form'),
         pvId: $('pv-id'), pvName: $('pv-name'), pvBase: $('pv-base'), pvKey: $('pv-key'),
@@ -1892,7 +1911,15 @@
             dots.appendChild(document.createElement('i'));
             dots.appendChild(document.createElement('i'));
             els.chatTyping.appendChild(dots);
-            els.chatTyping.appendChild(document.createTextNode((speaker ? speaker.displayName : data.typing) + t('chat.typing')));
+            var typingLabel = (speaker ? speaker.displayName : data.typing) + t('chat.typing');
+            if (data.turn) {
+              var used = [];
+              used.push(data.turn.tokens + (data.turn.maxTokens ? '/' + data.turn.maxTokens : '') + ' tok');
+              var mins = Math.floor((data.turn.elapsedMs || 0) / 60000);
+              if (data.turn.maxMinutes) used.push(mins + '/' + data.turn.maxMinutes + ' min');
+              typingLabel += ' · ' + used.join(' · ');
+            }
+            els.chatTyping.appendChild(document.createTextNode(typingLabel));
             els.chatTyping.hidden = false;
             if (headAvatar) headAvatar.classList.add('live');
           } else {
@@ -3141,6 +3168,10 @@
         api('/api/info').then(function (info) {
           els.cfgMemoryDir.value = info.memoryDir;
           els.cfgOutputsDir.value = info.outputsDir;
+          if (info.budget) {
+            els.cfgBudgetTokens.value = info.budget.maxTokens || 0;
+            els.cfgBudgetMinutes.value = info.budget.maxMinutes || 0;
+          }
           els.infoPanelVersion.textContent = info.panelVersion;
           els.infoMaigeVersion.textContent = info.maigeVersion || '—';
           els.infoMemoryDir.textContent = info.memoryDir;
@@ -3184,7 +3215,14 @@
         api('/api/config', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ memoryDir: els.cfgMemoryDir.value.trim(), outputsDir: els.cfgOutputsDir.value.trim() })
+          body: JSON.stringify({
+            memoryDir: els.cfgMemoryDir.value.trim(),
+            outputsDir: els.cfgOutputsDir.value.trim(),
+            budget: {
+              maxTokens: Number(els.cfgBudgetTokens.value) || 0,
+              maxMinutes: Number(els.cfgBudgetMinutes.value) || 0,
+            },
+          })
         }).then(function () {
           showToast(t('toast.saved'));
           loadSettings();

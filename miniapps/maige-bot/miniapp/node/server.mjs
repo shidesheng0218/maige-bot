@@ -20,6 +20,7 @@ import {
 import { avatarSvgFor, kindOf, extOf, MEDIA_TYPES } from './core/avatar.mjs';
 import { maxTokensForRole, MAX_TOKENS_LIMIT } from './core/roles.mjs';
 import { CHAT_MAX_TOKENS, NON_CHAT_MODEL } from './core/llm.mjs';
+import { normalizeBudget } from './core/budget.mjs';
 import { sendJson, sendError, readBody } from './core/http.mjs';
 import { resolveWorkspace, resolveInside, listDir } from './core/fs.mjs';
 import { TASK_TRANSITIONS, TASK_KINDS, serializeTask, parseTask } from './core/tasks.mjs';
@@ -45,7 +46,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.25.0';
+const PANEL_VERSION = '0.26.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -96,11 +97,12 @@ export async function start(context) {
         capabilities: sanitizeCapsMap(raw.capabilities),
         maxTokens: sanitizeMaxTokensMap(raw.maxTokens),
         providers: sanitizeProviders(raw.providers),
+        budget: normalizeBudget(raw.budget),
         notifications: raw.notifications !== false,
         minimaxApiKey: typeof raw.minimaxApiKey === 'string' ? raw.minimaxApiKey.trim() : '',
       };
     } catch {
-      return { ...DEFAULTS, models: {}, capabilities: {}, maxTokens: {}, providers: [], notifications: true, minimaxApiKey: '' };
+      return { ...DEFAULTS, models: {}, capabilities: {}, maxTokens: {}, providers: [], budget: normalizeBudget(), notifications: true, minimaxApiKey: '' };
     }
   }
 
@@ -191,6 +193,8 @@ export async function start(context) {
   }
   // 动态判定：用户随时新增 provider，面板立刻可用（不是启动时算一次）
   const llmReady = () => getProviders().length > 0;
+  /** 当前回合预算（用户可配；0 = 不限） */
+  const getBudget = () => normalizeBudget(config.budget);
   // 宿主连接器探针（仅 MCode 宿主注入；standalone 无）。启动时列出可用工具，供诊断页与后续 GENERATE 能力评估。
   let hostTools = [];
   if (context.hostConnector && typeof context.hostConnector.list === 'function') {
@@ -661,12 +665,13 @@ ${roster}
   // 多 agent 编排器（工厂注入运行时状态；实现见 core/orchestrator.mjs）
   const {
     speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress,
-    cancelTurn, isRunning,
+    cancelTurn, isRunning, turnInfo,
   } = createOrchestrator({
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
     persistChat, logError, notify, context,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
+    getBudget,
   });
 
 
@@ -780,6 +785,7 @@ ${roster}
         maigeVersion,
         memoryDir: config.memoryDir,
         outputsDir: config.outputsDir,
+        budget: getBudget(),
         notifications: config.notifications !== false,
       });
       return;
@@ -944,6 +950,7 @@ ${roster}
         typing: conv.typing,
         draft: conv.draft || null,
         running: isRunning(convId),
+        turn: turnInfo(convId),
         llmReady: llmReady(),
       });
       return;
@@ -1402,6 +1409,7 @@ ${roster}
         panelVersion: PANEL_VERSION,
         llmReady: llmReady(),
         minimaxConfigured: !!minimax.resolveApiKey(process.env, config.minimaxApiKey),
+        budget: getBudget(),
         hostConnector: { available: !!context.hostConnector, toolCount: hostTools.length, tools: hostTools },
         messageCount: Object.values(convs).reduce((n, c) => n + c.messages.length, 0),
         convCount: Object.keys(convs).length,
@@ -1419,6 +1427,7 @@ ${roster}
       if (typeof body.outputsDir === 'string') next.outputsDir = body.outputsDir.trim();
       if (typeof body.notifications === 'boolean') next.notifications = body.notifications;
       if (typeof body.minimaxApiKey === 'string') next.minimaxApiKey = body.minimaxApiKey.trim();
+      if (body.budget && typeof body.budget === 'object') next.budget = normalizeBudget(body.budget);
       for (const key of ['memoryDir', 'outputsDir']) {
         if (next[key] && (next[key].includes('\0') || !next[key].startsWith('/'))) {
           return sendError(res, 400, 'invalid_dir');

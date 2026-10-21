@@ -227,6 +227,95 @@ test('模型清单：按 provider 分组给出', async () => {
   await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE' });
 });
 
+test('预算：token 上限到点自动停止，并说明原因', async () => {
+  const { createServer } = await import('node:http');
+  const mock = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '好了' } }], usage: { total_tokens: 250 } }));
+    });
+  });
+  await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+  const port = mock.address().port;
+  try {
+    await send('/api/providers', 'POST', {
+      id: 'bmock', name: '预算 mock', baseURL: `http://127.0.0.1:${port}/v1`,
+      apiKey: 'k', models: ['m'], defaultModel: 'm',
+    });
+    await send('/api/bot', 'PUT', { key: 'maige', model: 'bmock/m' });
+    // 预算 200 tokens，单次回复记 250 → 第一次回复后即触发（走记账路径）
+    assert.ok((await send('/api/config', 'PUT', { budget: { maxTokens: 200, maxMinutes: 0 } })).ok);
+    await send('/api/chat/clear', 'POST', { conv: 'chief' });
+    assert.ok((await send('/api/chat/send', 'POST', { conv: 'chief', text: '说一句' })).ok);
+    const deadline = Date.now() + 8000;
+    let msgs = [];
+    while (Date.now() < deadline) {
+      msgs = (await (await get('/api/chat/messages?conv=chief')).json()).messages;
+      if (msgs.some((m) => m.kind === 'system' && m.text.includes('token 预算'))) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    assert.ok(msgs.some((m) => m.kind === 'system' && m.text.includes('token 预算（200）')), '应说明 token 预算用尽');
+    assert.ok(msgs.some((m) => m.kind === 'agent' && m.text.includes('好了')), '预算用尽前的那次回复应保留');
+    // 恢复不限
+    await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
+    await send('/api/bot', 'PUT', { key: 'maige', model: null });
+    await fetch(`${BASE}/api/providers?id=bmock`, { method: 'DELETE' });
+    mock.closeAllConnections?.(); // fetch 的 keep-alive 连接会让 close() 挂住
+    mock.close();
+  } finally { /* 失败时也尽量清理 */ }
+});
+
+test('预算：时长上限到点自动中止（长请求也能被掐断）', async () => {
+  const { createServer } = await import('node:http');
+  const slow = createServer((req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '太晚了' } }] }));
+    }, 5000);
+  });
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  const port = slow.address().port;
+  try {
+    await send('/api/providers', 'POST', {
+      id: 'slowb', name: '慢服务', baseURL: `http://127.0.0.1:${port}/v1`,
+      apiKey: 'k', models: ['m'], defaultModel: 'm',
+    });
+    await send('/api/bot', 'PUT', { key: 'maige', model: 'slowb/m' });
+    // 0.03 分钟 = 1.8 秒
+    assert.ok((await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0.03 } })).ok);
+    await send('/api/chat/clear', 'POST', { conv: 'chief' });
+    assert.ok((await send('/api/chat/send', 'POST', { conv: 'chief', text: '慢慢说' })).ok);
+    const start = Date.now();
+    const deadline = Date.now() + 6000;
+    let msgs = [];
+    while (Date.now() < deadline) {
+      msgs = (await (await get('/api/chat/messages?conv=chief')).json()).messages;
+      if (msgs.some((m) => m.kind === 'system' && m.text.includes('时长上限'))) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    assert.ok(msgs.some((m) => m.kind === 'system' && m.text.includes('时长上限（0.03 分钟）')), '应说明时长预算用尽');
+    assert.ok(Date.now() - start < 4500, '应在慢服务回复前中止（不是等它 5 秒）');
+    assert.ok(!msgs.some((m) => m.kind === 'agent' && m.text.includes('太晚了')));
+  } finally {
+    await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
+    await send('/api/bot', 'PUT', { key: 'maige', model: null });
+    await fetch(`${BASE}/api/providers?id=slowb`, { method: 'DELETE' });
+    slow.closeAllConnections?.();
+    slow.close();
+  }
+});
+
+test('预算：配置读写与 /api/info 回显', async () => {
+  assert.ok((await send('/api/config', 'PUT', { budget: { maxTokens: 12345, maxMinutes: 1.5 } })).ok);
+  const info = await (await get('/api/info')).json();
+  assert.deepEqual(info.budget, { maxTokens: 12345, maxMinutes: 1.5 });
+  const diag = await (await get('/api/diagnostics')).json();
+  assert.deepEqual(diag.budget, { maxTokens: 12345, maxMinutes: 1.5 });
+  await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
+});
+
 test('停止：能中断正在跑的回合，并干净收尾', async () => {
   // 起一个"慢"模型服务：收到请求后 8 秒才回，用来模拟长回合
   const { createServer } = await import('node:http');
@@ -276,6 +365,7 @@ test('停止：能中断正在跑的回合，并干净收尾', async () => {
   } finally {
     await send('/api/bot', 'PUT', { key: 'maige', model: null });
     await fetch(`${BASE}/api/providers?id=slow`, { method: 'DELETE' });
+    slow.closeAllConnections?.();
     slow.close();
   }
 });

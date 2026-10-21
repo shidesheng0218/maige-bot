@@ -41,6 +41,10 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 - **停止**：每个会话的回合持有 AbortController（`core/orchestrator.mjs` 的 beginTurn/cancelTurn），
   `POST /api/chat/stop` 可中断正在进行的模型请求；`callLlm` 收外部 signal，中止抛 `llm_aborted`（不算故障）；
   中止后不再续跑新回合，并落一条「已停止当前回合」系统消息
+- **回合预算**：`core/budget.mjs`（纯函数）+ `config.budget {maxTokens,maxMinutes}`（0=不限，分钟可小数）。
+  每次调用前 `allot` 把 max_tokens 收敛到剩余预算；每次回复后 `account` 记账并检查；
+  时长预算额外挂一个到点 abort 的 timer；停止原因分 user/tokens/time，收尾文案由 `budgetReasonText` 给。
+  `runTurn` 有"本轮无产出即退出"的保护，避免预算为 0 时空转
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
   会话里发「记住：…」确定性落盘
 - **搜索**：多源降级（必应 → 搜狗 → DuckDuckGo，各 7s 超时），只保留 http(s) 链接；失败要诚实

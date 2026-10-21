@@ -3,6 +3,7 @@
 
 import { callLlm } from './llm.mjs';
 import { parseTool, parseCalls } from './parse.mjs';
+import { budgetExceeded, effectiveMaxTokens, budgetReasonText } from './budget.mjs';
 
 /**
  * @param {object} deps
@@ -13,24 +14,47 @@ export function createOrchestrator(deps) {
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
     persistChat, logError, notify, context,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
+    getBudget,
   } = deps;
 
-  // ---------- 回合控制器（支持「停止」） ----------
-  // 每个会话同时只跑一个回合；回合持有 AbortController，用户点停止 → 立刻中断正在进行的模型请求
+  // ---------- 回合控制器（「停止」+ 预算） ----------
+  // 每个会话同时只跑一个回合；回合持有 AbortController 与累计用量。
+  // 停止来源：user（用户点停止）/ tokens（token 预算）/ time（时长预算）。
   const turnCtl = new Map();
   function beginTurn(convId) {
-    const ctl = { controller: new AbortController(), cancelled: false };
+    const ctl = {
+      controller: new AbortController(),
+      cancelled: false,
+      reason: null,
+      tokens: 0,
+      startedAt: Date.now(),
+      budget: getBudget ? getBudget() : null,
+      timer: null,
+    };
+    // 时长预算：到点自动中止（比"每次调用前检查"更准，长请求也能被掐断）
+    if (ctl.budget && ctl.budget.maxMinutes > 0) {
+      ctl.timer = setTimeout(() => {
+        if (turnCtl.get(convId) !== ctl) return;
+        ctl.cancelled = true;
+        ctl.reason = 'time';
+        try { ctl.controller.abort(); } catch { /* 已中止 */ }
+      }, ctl.budget.maxMinutes * 60000);
+      ctl.timer.unref?.();
+    }
     turnCtl.set(convId, ctl);
     return ctl;
   }
   function endTurn(convId) {
+    const ctl = turnCtl.get(convId);
+    if (ctl?.timer) clearTimeout(ctl.timer);
     turnCtl.delete(convId);
   }
   /** 中止某会话正在跑的回合；没有在跑返回 false */
-  function cancelTurn(convId) {
+  function cancelTurn(convId, reason = 'user') {
     const ctl = turnCtl.get(convId);
     if (!ctl) return false;
     ctl.cancelled = true;
+    if (!ctl.reason) ctl.reason = reason;
     try { ctl.controller.abort(); } catch { /* 已中止 */ }
     return true;
   }
@@ -42,6 +66,63 @@ export function createOrchestrator(deps) {
   }
   function isRunning(convId) {
     return turnCtl.has(convId);
+  }
+  /** 回合实时状态（面板显示用量/剩余；未运行返回 null） */
+  function turnInfo(convId) {
+    const ctl = turnCtl.get(convId);
+    if (!ctl) return null;
+    return {
+      tokens: ctl.tokens,
+      elapsedMs: Date.now() - ctl.startedAt,
+      maxTokens: ctl.budget?.maxTokens || 0,
+      maxMinutes: ctl.budget?.maxMinutes || 0,
+    };
+  }
+  function addUsage(convId, usage) {
+    const ctl = turnCtl.get(convId);
+    if (ctl && usage?.total_tokens) ctl.tokens += usage.total_tokens;
+  }
+  /** 记录本次发言消耗（speakWithTools 每次调用后都要记账） */
+  function account(convId, usage) {
+    addUsage(convId, usage);
+    const ctl = turnCtl.get(convId);
+    if (!ctl) return true;
+    const hit = budgetExceeded(ctl.budget, { tokens: ctl.tokens, elapsedMs: Date.now() - ctl.startedAt });
+    if (hit) {
+      ctl.cancelled = true;
+      ctl.reason = hit;
+      try { ctl.controller.abort(); } catch { /* 已中止 */ }
+      return false;
+    }
+    return true;
+  }
+  /** 发起调用前的预算检查：返回本次可用的 max_tokens；0 表示预算已尽 */
+  function allot(convId, botLimit) {
+    const ctl = turnCtl.get(convId);
+    if (!ctl) return botLimit || undefined;
+    const hit = budgetExceeded(ctl.budget, { tokens: ctl.tokens, elapsedMs: Date.now() - ctl.startedAt });
+    if (hit) {
+      ctl.cancelled = true;
+      ctl.reason = hit;
+      return 0;
+    }
+    const cap = effectiveMaxTokens(botLimit, ctl.budget, ctl.tokens);
+    if (cap === 0) {
+      // 剩余预算连一次最小调用都不够：明确标记为预算耗尽（不能只返回 0，否则外层会空转）
+      ctl.cancelled = true;
+      ctl.reason = 'tokens';
+    }
+    return cap;
+  }
+  /** 回合收尾：按停止原因给出解释，再清状态 */
+  async function finishTurn(convId, conv) {
+    conv.typing = null;
+    conv.running = false;
+    const ctl = turnCtl.get(convId);
+    const reason = ctl?.reason || null;
+    const budget = ctl?.budget || null;
+    endTurn(convId);
+    if (reason) await appendMessage(convId, 'system', '系统', budgetReasonText(reason, budget), 'system').catch(() => {});
   }
 
   /** 消息的可读文本：media/card 消息没有正文，用占位描述，避免空行污染上下文与纪要 */
@@ -115,13 +196,16 @@ export function createOrchestrator(deps) {
         if (isCancelled(convId)) return null;
         const sel = resolveModelFor(speaker.key);
         if (!sel) throw new Error('no_model_provider');
+        // 预算：本次调用的 max_tokens 不超过回合剩余量（0 = 预算已尽，不再发起调用）
+        const cap = allot(convId, maxTokensFor(speaker.key));
+        if (cap === 0) return null;
         reply = await callLlm(
           sel.provider,
           (await withCapabilities(system, speaker.key)) + (await memoryBlock(conv)) + TOOL_PROMPT,
           userContent,
           sel.model,
           (partial) => { conv.draft = { sender: speaker.key, name: speaker.displayName, text: partial }; },
-          maxTokensFor(speaker.key),
+          cap,
           turnSignal(convId),
         );
       } catch (e) {
@@ -132,6 +216,7 @@ export function createOrchestrator(deps) {
         return null;
       }
       conv.draft = null;
+      const withinBudget = account(convId, reply.usage); // 记账并检查预算（token/时长）
       const tool = parseTool(reply.text);
       if (!tool) {
         const clean = reply.text.replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
@@ -143,6 +228,7 @@ export function createOrchestrator(deps) {
       if (spoken && tool.name !== 'write' && tool.name !== 'task') {
         await appendMessage(convId, speaker.key, speaker.displayName, spoken, 'agent', reply.usage);
       }
+      if (!withinBudget) return reply.text; // 预算已尽：保留已产出的文字，不再执行工具
       const result = await execTool(tool, speaker.displayName, convId);
       await appendMessage(convId, 'system', '工具', result.note, 'system');
     }
@@ -175,11 +261,7 @@ export function createOrchestrator(deps) {
       await appendMessage(convId, 'system', '圆桌', '圆桌结束', 'system');
       context.logger.info('maige-bot.roundtable.done');
     } finally {
-      conv.typing = null;
-      conv.running = false;
-      const cancelled = isCancelled(convId); // 先读状态再清（endTurn 会删掉控制器）
-      endTurn(convId);
-      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
+      await finishTurn(convId, conv);
     }
   }
 
@@ -234,11 +316,7 @@ export function createOrchestrator(deps) {
       await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
       context.logger.info('maige-bot.sprint.done');
     } finally {
-      conv.typing = null;
-      conv.running = false;
-      const cancelled = isCancelled(convId); // 先读状态再清（endTurn 会删掉控制器）
-      endTurn(convId);
-      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
+      await finishTurn(convId, conv);
     }
   }
 
@@ -253,6 +331,7 @@ export function createOrchestrator(deps) {
       for (;;) {
         if (isCancelled(convId)) break; // 用户点了停止：不再续跑
         await maybeCompress(convId);
+        const before = conv.messages.length;
         if (convId === 'chief') {
           await runDmTurn(convId, { key: 'maige', displayName: '麦格' }, buildChiefSystem(members, 'dm'));
         } else if (convId.startsWith('m:')) {
@@ -298,21 +377,18 @@ export function createOrchestrator(deps) {
         }
         // 回合结束时若最后一条仍是用户消息（跑的时候又来了新消息），接着答
         if (isCancelled(convId)) break;
+        if (conv.messages.length === before) break; // 本轮没有任何产出：退出，避免空转
         const last = conv.messages[conv.messages.length - 1];
         if (!last || last.kind !== 'user') break;
         forced = null;
       }
     } finally {
-      conv.typing = null;
-      conv.running = false;
-      const cancelled = isCancelled(convId);
-      endTurn(convId);
-      if (cancelled) await appendMessage(convId, 'system', '系统', '已停止当前回合。', 'system').catch(() => {});
+      await finishTurn(convId, conv);
     }
   }
 
   return {
     speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress, buildTranscript,
-    cancelTurn, isRunning,
+    cancelTurn, isRunning, turnInfo,
   };
 }

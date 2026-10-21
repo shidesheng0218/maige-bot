@@ -9,7 +9,7 @@
 Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，也什么都能造。
 不为创作者专设：问答、决策、调研、工程、生活、情绪和创作，都是日常。
 
-**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.25.0**
+**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.26.0**
 
 ---
 
@@ -26,6 +26,7 @@ Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，
 - **程序化头像**：新 bot 按 key 哈希生成确定性几何头像（identicon 风），永远独一无二
 - **输出可见**：搜索结果/作品/整活单/生成物全部直接出卡片/内联媒体，不止干巴巴的文字回执
 - **随时能刹车**：长回合（攻坚/多轮讨论）跑飞了，点聊天头部的「停止」立刻中断，不必干等
+- **回合预算（可配）**：每回合 token / 时长上限自己定（0 = 不限，可填小数分钟），到点自动停并说明原因；面板实时显示本回合用量
 
 ## 自带模型（Bring Your Own Model）
 
@@ -45,6 +46,12 @@ export MAIGE_LLM_BASE_URL="https://api.deepseek.com/v1"
 export MAIGE_LLM_API_KEY="sk-..."
 export MAIGE_LLM_MODELS="deepseek-chat,deepseek-reasoner"
 ```
+
+### 回合预算
+
+设置 →「回合预算」：`每回合 token 上限` 和 `每回合时长上限（分钟）`，任一达到即自动停止本回合并说明原因。
+`0 = 不限`；分钟支持小数（`0.5` = 30 秒）。也可用环境变量 `MAIGE_TURN_MAX_TOKENS` / `MAIGE_TURN_MAX_MINUTES` 兜底。
+面板在「正在输入」处实时显示本回合已用 token / 剩余时间。
 
 ## 快速开始
 
