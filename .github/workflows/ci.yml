@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax check
+        run: |
+          node --check miniapps/maige-bot/miniapp/node/server.mjs
+          node --check miniapps/maige-bot/miniapp/node/standalone.mjs
+          node --check miniapps/maige-bot/scripts/session-start.mjs
+      - name: Unit + API tests (no LLM, no MCode required)
+        run: node --test test/unit.test.mjs test/api.test.mjs

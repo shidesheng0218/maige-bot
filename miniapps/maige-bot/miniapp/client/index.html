@@ -1014,6 +1014,16 @@
           'chat.empty.member': '还没和 {name} 聊过', 'chat.empty.member.desc': '打个招呼，或者直接派活。',
           'chat.notReady': '聊天未就绪', 'chat.notReady.desc': '未检测到可用的模型配置（需要本机 config.yaml 里的 OpenAI 兼容 provider）。',
           'chat.clear.confirm': '清空当前会话的全部记录？此操作不可恢复。',
+          'card.search': '搜索「{q}」· {n} 条',
+          'card.work': '作品 · {name}',
+          'card.task': '整活单 · {title}',
+          'card.meta': '类型：{kind} · 状态：{status}',
+          'card.kind.image': '图', 'card.kind.video': '视频', 'card.kind.audio': '音频', 'card.kind.text': '文本',
+          'card.status.draft': '待确认', 'card.status.ready': '已就绪', 'card.status.making': '制作中', 'card.status.done': '已交付', 'card.status.cancelled': '已取消',
+          'card.footer.ready': '点开始即制作，可在任务区退回/取消',
+          'card.footer.draft': '等确认提示词',
+          'card.footer.work': '已进作品库 · {size}',
+          'media.image': '图片', 'media.audio': '语音', 'media.video': '视频',
           'preview.noPreview': '该类型不支持预览，请打开原文件查看。',
           'toast.saved': '已保存', 'toast.deleted': '已删除', 'toast.created': '已创建', 'toast.copied': '诊断信息已复制',
           'toast.fail.save': '保存失败，请重试', 'toast.fail.delete': '删除失败，请重试', 'toast.fail.create': '创建失败，请重试',
@@ -1117,6 +1127,16 @@
           'chat.empty.member': 'No messages with {name} yet', 'chat.empty.member.desc': 'Say hi, or assign a task directly.',
           'chat.notReady': 'Chat not ready', 'chat.notReady.desc': 'No usable model config found (needs an OpenAI-compatible provider in config.yaml).',
           'chat.clear.confirm': 'Clear all messages in this conversation? This cannot be undone.',
+          'card.search': 'Search “{q}” · {n} results',
+          'card.work': 'Work · {name}',
+          'card.task': 'Production task · {title}',
+          'card.meta': 'Type: {kind} · Status: {status}',
+          'card.kind.image': 'image', 'card.kind.video': 'video', 'card.kind.audio': 'audio', 'card.kind.text': 'text',
+          'card.status.draft': 'pending review', 'card.status.ready': 'ready', 'card.status.making': 'in progress', 'card.status.done': 'delivered', 'card.status.cancelled': 'cancelled',
+          'card.footer.ready': 'Start to produce; you can send it back or cancel from Tasks',
+          'card.footer.draft': 'Waiting for prompt review',
+          'card.footer.work': 'Saved to outputs · {size}',
+          'media.image': 'Image', 'media.audio': 'Audio', 'media.video': 'Video',
           'preview.noPreview': 'Preview unavailable for this type. Open the file instead.',
           'toast.saved': 'Saved', 'toast.deleted': 'Deleted', 'toast.created': 'Created', 'toast.copied': 'Diagnostics copied',
           'toast.fail.save': 'Save failed, retry', 'toast.fail.delete': 'Delete failed, retry', 'toast.fail.create': 'Create failed, retry',
@@ -1383,7 +1403,15 @@
         return (bytes / 1024 / 1024).toFixed(1) + ' MB';
       }
       function api(path, options) {
-        return fetch(path, options).then(function (r) {
+        var opts = options || {};
+        var method = (opts.method || 'GET').toUpperCase();
+        if (method !== 'GET') {
+          // CSRF 防护：写请求带自定义头；跨站页面无法在不触发 preflight 的情况下伪造
+          opts = Object.assign({}, opts, {
+            headers: Object.assign({}, opts.headers || {}, { 'x-maige-csrf': '1' })
+          });
+        }
+        return fetch(path, opts).then(function (r) {
           if (!r.ok) throw new Error('request_failed');
           return r.json();
         });
@@ -1586,34 +1614,41 @@
           md.appendChild(wrap);
           return md;
         }
-        // 结构化结果卡片（搜索结果/作品内容/整活单——直接出实物，不止一句话）
+        // 结构化结果卡片（搜索/作品/整活单）——数据由服务端给，文案在客户端按语言渲染
         if (m.kind === 'card' && m.card) {
+          var card = m.card;
+          var cardTitle = '';
+          if (card.type === 'search') cardTitle = t('card.search', { q: card.query || '', n: (card.items || []).length });
+          else if (card.type === 'work') cardTitle = t('card.work', { name: card.name || '' });
+          else if (card.type === 'task') cardTitle = t('card.task', { title: card.title || '' });
+          else cardTitle = card.title || '';
+
           var cd = document.createElement('div');
           cd.className = 'msg card';
           var cw = document.createElement('div');
           cw.className = 'card-wrap';
-          if (m.card.title) {
+          if (cardTitle) {
             var ct = document.createElement('div');
             ct.className = 'card-title';
-            ct.textContent = m.card.title;
+            ct.textContent = cardTitle;
             cw.appendChild(ct);
           }
           var cb = document.createElement('div');
           cb.className = 'card-body';
-          if (m.card.items && m.card.items.length) {
-            // 搜索/列表类：逐条渲染（可点链接）
-            m.card.items.forEach(function (it) {
+          if (card.items && card.items.length) {
+            // 搜索/列表类：逐条渲染（仅 http(s) 链接可点）
+            card.items.forEach(function (it) {
               var ci = document.createElement('div');
               ci.className = 'card-item';
               var cit = document.createElement('div');
               cit.className = 'card-item-title';
-              if (it.url) {
+              if (it.url && /^https?:\/\//i.test(it.url)) {
                 var a = document.createElement('a');
                 a.href = it.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
                 a.textContent = it.title || it.url;
                 cit.appendChild(a);
               } else {
-                cit.textContent = it.title || '';
+                cit.textContent = it.title || it.url || '';
               }
               ci.appendChild(cit);
               if (it.snippet) {
@@ -1624,16 +1659,34 @@
               }
               cw.appendChild(ci);
             });
-          } else if (m.card.body) {
-            // 作品/单子类：正文
-            cb.textContent = m.card.body;
+          } else if (card.type === 'task') {
+            var meta = document.createElement('div');
+            meta.className = 'card-body';
+            meta.textContent = t('card.meta', {
+              kind: t('card.kind.' + (card.kind || 'text')),
+              status: t('card.status.' + (card.status || 'draft')),
+            });
+            cw.appendChild(meta);
+            if (card.body) {
+              var tb = document.createElement('div');
+              tb.className = 'card-body';
+              tb.style.marginTop = '6px';
+              tb.textContent = card.body;
+              cw.appendChild(tb);
+            }
+          } else if (card.body) {
+            cb.textContent = card.body;
             cw.appendChild(cb);
           }
-          if (m.card.footer) {
+          var footerText = '';
+          if (card.type === 'task') footerText = t(card.status === 'ready' ? 'card.footer.ready' : 'card.footer.draft');
+          else if (card.type === 'work' && card.size) footerText = t('card.footer.work', { size: card.size });
+          else if (card.footer) footerText = card.footer;
+          if (footerText) {
             var cft = document.createElement('div');
             cft.className = 'card-item-snippet';
             cft.style.marginTop = '8px';
-            cft.textContent = m.card.footer;
+            cft.textContent = footerText;
             cw.appendChild(cft);
           }
           cd.appendChild(cw);

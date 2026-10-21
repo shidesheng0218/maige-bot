@@ -4,180 +4,52 @@
 // 安全：所有文件访问经 realpath 校验，fail-closed 限定在授权目录内；不做任意文件系统代理。
 
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
-import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import * as minimax from './minimax.mjs';
+import { resolveHostPaths, loadLlmConfig } from './core/host.mjs';
+import {
+  parseTool, parseCalls, parseAgentFrontmatter, parseMemory,
+  serializeMemory, normalizeMemoryInput, today, ID_PATTERN,
+} from './core/parse.mjs';
+import { avatarSvgFor, kindOf, extOf, MEDIA_TYPES } from './core/avatar.mjs';
+import { maxTokensForRole, MAX_TOKENS_LIMIT } from './core/roles.mjs';
+import { LLM_MODEL, CHAT_MAX_TOKENS, NON_CHAT_MODEL } from './core/llm.mjs';
+import { sendJson, sendError, readBody } from './core/http.mjs';
+import { resolveWorkspace, resolveInside, listDir } from './core/fs.mjs';
+import { TASK_TRANSITIONS, TASK_KINDS, serializeTask, parseTask } from './core/tasks.mjs';
+import { createToolExecutor } from './core/tools.mjs';
+import { createOrchestrator } from './core/orchestrator.mjs';
+
+// 向后兼容：测试与外部脚本从 server.mjs 导入这些纯函数
+export { parseTool, parseCalls, resolveWorkspace, avatarSvgFor, maxTokensForRole };
+export { parseAgentFrontmatter, parseMemory, serializeMemory, normalizeMemoryInput, parseTask, serializeTask };
 
 /** @typedef {import('./miniapp-api.js').MiniAppContext} MiniAppContext */
 /** @typedef {import('./miniapp-api.js').MiniAppLifecycle} MiniAppLifecycle */
 
-// 路径可配置（公开仓库不写死个人绝对路径）：优先 MAIGE_* 环境变量，否则用 HOME 推导默认。
-// 默认布局约定：<ROOT> = $HOME/Documents/minimax项目（可用 MAIGE_ROOT 覆盖）。
-import { homedir } from 'node:os';
-const HOME = process.env.HOME || homedir();
-const MAIGE_ROOT = process.env.MAIGE_ROOT || join(HOME, 'Documents', 'minimax项目');
-const MINIMAX_HOME = process.env.MINIMAX_HOME || join(HOME, '.minimax');
-
-const DEFAULTS = {
-  memoryDir: process.env.MAIGE_MEMORY_DIR || join(MAIGE_ROOT, 'maige-bot', 'memory'),
-  outputsDir: process.env.MAIGE_OUTPUTS_DIR || join(MAIGE_ROOT, 'maige-outputs'),
-};
-// 面板的业务边界：除两个可配目录外，只读 maige-bot 插件清单里的版本号
-const MAIGE_PLUGIN_MANIFEST = process.env.MAIGE_PLUGIN_MANIFEST || join(MINIMAX_HOME, 'plugins', 'maige-bot', '.minimax-plugin', 'plugin.json');
-// 团队页只读目录：MCode 自定义 agent 注册位置。
-// 团队不是固定名单：凡 agent.md frontmatter 带 `team: maige` 标记的都是麦格成员（动态组队）。
-const AGENTS_DIR = process.env.MAIGE_AGENTS_DIR || join(MINIMAX_HOME, 'agents');
-// 头像目录：icons-v2（Q 版）优先，icons（商业符号风）兜底。成员 key → display 名小写 → <名>.png/.jpg。
-const ICONS_DIRS = (process.env.MAIGE_ICONS_DIRS
-  ? process.env.MAIGE_ICONS_DIRS.split(':')
-  : [join(MAIGE_ROOT, 'maige-outputs', 'icons-v2'), join(MAIGE_ROOT, 'maige-outputs', 'icons')]);
+// 宿主路径全部经适配层解析（可被 MAIGE_* 环境变量覆盖，非 MCode 环境同样可跑）
+const HOST = resolveHostPaths();
+const DEFAULTS = { memoryDir: HOST.memoryDir, outputsDir: HOST.outputsDir };
+const MAIGE_PLUGIN_MANIFEST = HOST.pluginManifest;
+const AGENTS_DIR = HOST.agentsDir;
+const ICONS_DIRS = HOST.iconsDirs;
 const ICON_EXTS = ['.png', '.jpg'];
 
-/** 解析 agent.md frontmatter 为键值对 */
-function parseAgentFrontmatter(raw) {
-  const out = {};
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!m) return out;
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
-    if (kv) out[kv[1].toLowerCase()] = kv[2].trim();
-  }
-  return out;
-}
-
-const ID_PATTERN = /^[A-Za-z0-9._-]+$/;
-const SOURCES = ['user', 'maige', 'tool'];
-const MEDIA_TYPES = {
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
-  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
-  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg',
-  '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
-};
-
-function extOf(name) {
-  const i = name.lastIndexOf('.');
-  return i >= 0 ? name.slice(i).toLowerCase() : '';
-}
-
-/** 确定性头像：key 哈希 → 品牌紫系 HSL 色 + 5×5 左右对称几何图案（identicon 风）。
- *  同一 key 永远同一图案，不同 key 图案/颜色都不同——新 bot 零素材即得独一无二头像。 */
-export function avatarSvgFor(seed) {
-  const h = createHash('sha256').update(String(seed)).digest();
-  const hue = 240 + (h[0] % 60);            // 240~300 蓝紫带（品牌紫系）
-  const sat = 55 + (h[1] % 25);             // 55~80
-  const bgL = 22 + (h[2] % 12);             // 深色底 22~34
-  const fgL = 62 + (h[3] % 14);             // 亮色前景 62~76
-  const N = 5, cell = 96 / N;
-  const bit = (x, y) => (h[4 + ((y * 3 + x) % 28)] >> ((y * 3 + x) % 8)) & 1; // 取左 3 列做对称源
-  let cells = '';
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const mx = x < 3 ? x : N - 1 - x;     // 右半镜像左半 → 左右对称
-      if (!bit(mx, y)) continue;
-      cells += `<rect x="${(x * cell).toFixed(1)}" y="${(y * cell).toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}"/>`;
-    }
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">`
-    + `<rect width="96" height="96" rx="20" fill="hsl(${hue} ${sat}% ${bgL}%)"/>`
-    + `<g fill="hsl(${hue} ${sat}% ${fgL}%)">${cells}</g></svg>`;
-}
-
-function kindOf(name) {
-  const mime = MEDIA_TYPES[extOf(name)] || '';
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  return 'file';
-}
-
-/** 解析 bot 回复里的工具指令（一条回复最多认 1 个，WRITE 必须是回复的结尾） */
-export function parseTool(text) {
-  let m = text.match(/\[\[SEARCH:([^\]]+)\]\]/);
-  if (m) return { name: 'search', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[READ:([^\]]+)\]\]/);
-  if (m) return { name: 'read', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[LS:([^\]]+)\]\]/);
-  if (m) return { name: 'ls', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[WRITE:([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'write', arg: m[1].trim(), content: m[2].trim(), raw: m[0] };
-  m = text.match(/\[\[TASK:([A-Za-z]+):([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'task', kind: m[1].trim().toLowerCase(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] };
-  m = text.match(/\[\[HIRE:([a-z][a-z0-9-]{1,30}):([^\]\n:]+):([^\]]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'hire', arg: m[1].trim(), role: m[2].trim(), display: m[3].trim(), content: m[4].trim(), raw: m[0] };
-  // [[CONFIG:key:field:value]] 调整成员配置（field: maxTokens/model），一条一个，不用换行接内容
-  m = text.match(/\[\[CONFIG:([a-z][a-z0-9-]{1,30}):(maxTokens|model):([^\]]+)\]\]/);
-  if (m) return { name: 'config', arg: m[1].trim(), field: m[2].trim(), value: m[3].trim(), raw: m[0] };
-  // [[GENERATE_IMAGE:提示词]] 文生图；[[SPEAK:文本]] 文转语音。提示词在指令内，不换行
-  m = text.match(/\[\[GENERATE_IMAGE:([^\]\n]+)\]\]/);
-  if (m) return { name: 'generate_image', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[SPEAK:([^\]\n]+)\]\]/);
-  if (m) return { name: 'speak', arg: m[1].trim(), raw: m[0] };
-  return null;
-}
-
-/** 把路径限定在工作区内（支持子路径；realpath 解析软链；fail-closed） */
-export async function resolveWorkspace(root, p) {
-  const realRoot = await realpath(root).catch(() => null);
-  if (!realRoot) return null;
-  const abs = p.startsWith('/') ? p : join(realRoot, p);
-  const target = await realpath(abs).catch(() => null);
-  if (!target || (target !== realRoot && !target.startsWith(realRoot + '/'))) return null;
-  return target;
-}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 // ================= 群聊引擎 =================
-// 模型来源：解析本机 config.yaml 的 OpenAI 兼容 provider（dashscope/Alibaba 块），
-// 直连 /chat/completions。凭据只留在 Node 进程，不进 Client、不进日志。
+// 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
+// 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const LLM_MODEL = 'kimi-k3';
-const CHAT_MAX_TOKENS = 600;
-// 每 bot maxTokens 上限对齐 kimi-k3 真实输出上限（config.yaml limit.output = 1000000）
-const MAX_TOKENS_LIMIT = 1000000;
-// 新 bot 入职自动分档（按职责关键词，命中即用；DEFAULT_MAX_TOKENS 兜底）。存量的手动配值优先级更高（config.maxTokens 覆盖）。
-const ROLE_MAX_TOKENS = [
-  { match: /写|文案|编剧|歌词|脚本|创作|成文/, tokens: 200000 },
-  { match: /技术|代码|工程|开发|架构/, tokens: 50000 },
-  { match: /主管|chief|收口|总结/, tokens: 8000 },
-  { match: /评审|挑刺|压力测试|审/, tokens: 4000 },
-  { match: /视觉|分镜|画面|美术|设计/, tokens: 4000 },
-  { match: /查证|调研|搜索|溯源|研究/, tokens: 2000 },
-  { match: /记录|纪要|归档|备忘/, tokens: 2000 },
-];
-const DEFAULT_MAX_TOKENS = 4000;
-export function maxTokensForRole(role) {
-  const text = String(role || '');
-  for (const r of ROLE_MAX_TOKENS) {
-    if (r.match.test(text)) return r.tokens;
-  }
-  return DEFAULT_MAX_TOKENS;
-}
-const PANEL_VERSION = '0.22.0';
+const PANEL_VERSION = '0.23.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
-const TASKS_DIR = process.env.MAIGE_TASKS_DIR || join(MAIGE_ROOT, 'maige-bot', 'tasks');
-// 任务状态机：draft 待确认 → ready 提示词就绪 → making 制作中 → done 已交付；cancelled 可复活到 draft
-const TASK_TRANSITIONS = {
-  draft: ['ready', 'cancelled'],
-  ready: ['making', 'draft', 'cancelled'],
-  making: ['done', 'ready', 'cancelled'],
-  done: [],
-  cancelled: ['draft'],
-};
-const TASK_KINDS = ['image', 'video', 'audio', 'text'];
-// 非敏感任务类型：开单后免确认直通 ready（提示词就绪）；video/audio 成本高，保留人工确认闸
-const AUTO_READY_KINDS = ['image', 'text'];
+const TASKS_DIR = HOST.tasksDir;
 // 工具层：bot 回复里的指令由服务端解析执行（[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]），
 // 结果作为【工具】系统消息回注上下文，同一人接着说。每位发言者最多 TOOL_ROUNDS 轮。
 const TOOL_ROUNDS = 3;
-const WORKSPACE_ROOT = process.env.MAIGE_WORKSPACE_ROOT || MAIGE_ROOT;
+const WORKSPACE_ROOT = HOST.workspaceRoot;
 // 上下文压缩：会话超过 TRIGGER 条就把旧消息压成纪要（保留最近 KEEP 条原文）；
 // 距上次压缩又涨 EVERY 条再重压。env 可调（手动验证脚本用小阈值）。
 const COMPRESS_TRIGGER = parseInt(process.env.MAIGE_COMPRESS_TRIGGER || '60', 10);
@@ -200,216 +72,7 @@ const TOOL_PROMPT = `
 
 【纪律】先说后做等于撒谎：没有写对应指令，就绝不要说「已入职/已写好/已开单/已搜到」。宣布了动作，指令就必须出现在同一条回复里。`;
 // 能力包目录：纯文本提示词包（.md，frontmatter 写 name/description），可挂载到任意 bot
-const CAPS_DIR = process.env.MAIGE_CAPS_DIR || join(MAIGE_ROOT, 'maige-bot', 'capabilities');
-// 聊天模型筛选：排除明显非对话模型（图像/语音/视频/向量）
-const NON_CHAT_MODEL = /image|tts|video|embedding|vl-/i;
-
-/** 从 config.yaml 提取 OpenAI 兼容 provider（含 dashscope 的块） */
-function loadLlmConfig() {
-  try {
-    const raw = readFileSync(join(MINIMAX_HOME, 'config.yaml'), 'utf8');
-    const lines = raw.split('\n');
-    const blocks = [];
-    let cur = null;
-    for (const l of lines) {
-      const m = l.match(/^  ([A-Za-z0-9_-]+):\s*$/);
-      if (m) { if (cur) blocks.push(cur); cur = { key: m[1], lines: [] }; continue; }
-      if (cur) cur.lines.push(l);
-      if (/^\S/.test(l) && cur) { blocks.push(cur); cur = null; }
-    }
-    if (cur) blocks.push(cur);
-    const found = blocks.find((b) => b.lines.join('\n').includes('dashscope'))
-      || blocks.find((b) => b.lines.join('\n').includes('api.claudecode.net.cn'));
-    if (!found) return null;
-    const block = found.lines.join('\n');
-    const apiKey = block.match(/apiKey:\s*(\S+)/)?.[1];
-    const baseURL = block.match(/baseURL:\s*(\S+)/)?.[1];
-    if (!apiKey || !baseURL) return null;
-    return { apiKey, baseURL: baseURL.replace(/\/$/, ''), models: modelsFromBlock(found.lines) };
-  } catch {
-    return null;
-  }
-}
-
-/** 从 provider 块提取 models: 映射里的模型 id（4 空格 models: → 6 空格模型名） */
-function modelsFromBlock(lines) {
-  const out = [];
-  let inModels = false;
-  for (const line of lines) {
-    if (/^    models:\s*$/.test(line)) { inModels = true; continue; }
-    if (!inModels) continue;
-    if (/^ {4}\S/.test(line)) break; // 回到 4 空格层，models 段结束
-    const m = line.match(/^      ([A-Za-z0-9._-]+):\s*$/);
-    if (m) out.push(m[1]);
-  }
-  return out;
-}
-
-/** 调一次模型，返回纯文本；失败抛错。model/maxTokens 为空时用全局默认。
- *  userContent 可为字符串或 content 数组（带图）；onChunk 传入时走 SSE 流式，逐段回调累计文本。 */
-async function callLlm(llm, system, userContent, model, onChunk, maxTokens) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
-  try {
-    const r = await fetch(llm.baseURL + '/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + llm.apiKey },
-      body: JSON.stringify({
-        model: model || LLM_MODEL,
-        max_tokens: maxTokens || CHAT_MAX_TOKENS,
-        thinking: { type: 'disabled' },
-        stream: !!onChunk,
-        ...(onChunk ? { stream_options: { include_usage: true } } : {}),
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userContent },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    if (!r.ok) throw new Error('llm_http_' + r.status);
-    if (!onChunk) {
-      const j = await r.json().catch(() => null);
-      const text = j?.choices?.[0]?.message?.content;
-      if (!text || !text.trim()) throw new Error('llm_empty');
-      return { text: text.trim(), usage: j?.usage ?? null };
-    }
-    if (!r.body) throw new Error('llm_no_stream');
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    let text = '';
-    let usage = null;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const event = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const line of event.split('\n')) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const j = JSON.parse(payload);
-            const delta = j?.choices?.[0]?.delta?.content;
-            if (delta) { text += delta; onChunk(text); }
-            if (j?.usage) usage = j.usage;
-          } catch { /* 半包忽略，下一段补齐 */ }
-        }
-      }
-    }
-    if (!text.trim()) throw new Error('llm_empty');
-    return { text: text.trim(), usage };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function sendJson(res, status, data) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(data));
-}
-
-function sendError(res, status, code) {
-  sendJson(res, status, { error: code });
-}
-
-async function readBody(req) {
-  let body = '';
-  for await (const chunk of req) body += chunk;
-  if (body.length > 256 * 1024) throw new Error('payload_too_large');
-  return body ? JSON.parse(body) : {};
-}
-
-/** 解析单条记忆 .md 文件（frontmatter + 正文） */
-function parseMemory(id, raw) {
-  const item = { id, name: id, description: '', source: 'maige', date: '', sensitive: false, body: '' };
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  item.body = (m ? m[2] : raw).trim();
-  if (m) {
-    for (const line of m[1].split(/\r?\n/)) {
-      const kv = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
-      if (!kv) continue;
-      const key = kv[1].toLowerCase();
-      const value = kv[2].trim();
-      if (key === 'name' && value) item.name = value;
-      if (key === 'description') item.description = value;
-      if (key === 'source' && SOURCES.includes(value)) item.source = value;
-      if (key === 'date') item.date = value;
-      if (key === 'sensitive') item.sensitive = value === 'true';
-    }
-  }
-  return item;
-}
-
-/** 序列化记忆为 .md 文件内容 */
-function serializeMemory(item) {
-  const esc = (v) => String(v ?? '').replace(/\r?\n/g, ' ').trim();
-  return [
-    '---',
-    `name: ${esc(item.name)}`,
-    `description: ${esc(item.description)}`,
-    `source: ${SOURCES.includes(item.source) ? item.source : 'maige'}`,
-    `date: ${esc(item.date) || today()}`,
-    `sensitive: ${item.sensitive ? 'true' : 'false'}`,
-    '---',
-    '',
-    `${String(item.body ?? '').trim()}`,
-    '',
-  ].join('\n');
-}
-
-/** 校验客户端提交的记忆字段，返回错误码或规范化对象 */
-function normalizeMemoryInput(raw) {
-  if (!raw || typeof raw !== 'object') return { error: 'invalid_body' };
-  const name = String(raw.name ?? '').trim();
-  if (!name || name.length > 60) return { error: 'invalid_name' };
-  const body = String(raw.body ?? '').trim();
-  if (!body) return { error: 'invalid_body_content' };
-  return {
-    value: {
-      name,
-      description: String(raw.description ?? '').trim().slice(0, 200),
-      source: SOURCES.includes(raw.source) ? raw.source : 'user',
-      sensitive: raw.sensitive === true,
-      body: body.slice(0, 8000),
-      date: typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : today(),
-    },
-  };
-}
-
-/** 列目录内文件并附带 stat 信息；目录不存在时返回 dirExists:false */
-async function listDir(dir) {
-  try {
-    const real = await realpath(dir);
-    const names = await readdir(real);
-    const items = [];
-    for (const name of names) {
-      if (name.startsWith('.')) continue;
-      try {
-        const st = await stat(join(real, name));
-        if (!st.isFile()) continue;
-        items.push({ name, size: st.size, mtime: st.mtime.toISOString() });
-      } catch { /* 单个文件失败不阻塞列表 */ }
-    }
-    return { dirExists: true, real, items };
-  } catch {
-    return { dirExists: false, real: null, items: [] };
-  }
-}
-
-/** 将用户提交的文件名限定在授权目录内（fail-closed） */
-async function resolveInside(dir, name) {
-  if (!ID_PATTERN.test(name) || name.includes('..')) return null;
-  const real = await realpath(dir).catch(() => null);
-  if (!real) return null;
-  const target = await realpath(join(real, name)).catch(() => null);
-  if (!target || !target.startsWith(real + '/')) return null;
-  return target;
-}
+const CAPS_DIR = HOST.capsDir;
 
 /**
  * @param {MiniAppContext} context
@@ -472,12 +135,16 @@ export async function start(context) {
   async function saveConfig(next) {
     const merged = { ...config, ...next };
     await mkdir(context.dataDir, { recursive: true });
-    await writeFile(configPath, JSON.stringify(merged, null, 2), 'utf8');
+    await writeFile(configPath, JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 });
+    // mode 只在创建时生效；已存在的文件要显式收紧（配置里可能有 MiniMax API key）
+    await chmod(configPath, 0o600).catch(() => {});
     return merged;
   }
 
   let config = await loadConfig();
   await mkdir(config.memoryDir, { recursive: true }).catch(() => {});
+  // 存量配置里可能已有 API key：启动时收紧权限（仅当前用户可读写）
+  await chmod(configPath, 0o600).catch(() => {});
 
   // ================= 聊天状态（多会话，DS Bot 式） =================
   // 会话 id：'chief'=与麦格单聊，'group'=团队群聊，'m:<成员key>'=与成员单聊。
@@ -497,7 +164,7 @@ export async function start(context) {
   // 探针落盘：不管宿主有没有注入，都把结果写到固定文件，方便 MCode 面板启动后被外部读取（绕开宿主 Host 校验）
   try {
     const { writeFileSync: wf } = await import('node:fs');
-    wf(join(MAIGE_ROOT, 'maige-bot', 'data', 'host-tools.json'), JSON.stringify({
+    wf(join(HOST.root, 'maige-bot', 'data', 'host-tools.json'), JSON.stringify({
       available: !!context.hostConnector, pluginId: context.pluginId, at: new Date().toISOString(), toolCount: hostTools.length, tools: hostTools,
     }, null, 2), 'utf8');
   } catch { /* 探针落盘失败不阻塞启动 */ }
@@ -735,43 +402,6 @@ ${roster}
   }
 
   // ---------- 整活单（任务状态机，文件即真相） ----------
-  function serializeTask(t) {
-    const esc = (v) => String(v ?? '').replace(/\r?\n/g, ' ').trim();
-    return [
-      '---',
-      `id: ${esc(t.id)}`,
-      `title: ${esc(t.title)}`,
-      `kind: ${TASK_KINDS.includes(t.kind) ? t.kind : 'text'}`,
-      `status: ${TASK_TRANSITIONS[t.status] ? t.status : 'draft'}`,
-      `created: ${esc(t.created)}`,
-      `updated: ${esc(t.updated)}`,
-      `createdBy: ${esc(t.createdBy || 'user')}`,
-      `conv: ${esc(t.conv || '')}`,
-      `deliverables: ${(t.deliverables || []).map(esc).join(', ')}`,
-      '---',
-      '',
-      String(t.body ?? '').trim(),
-      '',
-    ].join('\n');
-  }
-
-  function parseTask(fileName, raw) {
-    const fm = parseAgentFrontmatter(raw);
-    const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-    return {
-      id: fm.id || fileName.replace(/\.md$/, ''),
-      title: fm.title || fileName.replace(/\.md$/, ''),
-      kind: TASK_KINDS.includes(fm.kind) ? fm.kind : 'text',
-      status: TASK_TRANSITIONS[fm.status] ? fm.status : 'draft',
-      created: fm.created || '',
-      updated: fm.updated || '',
-      createdBy: fm.createdby || 'user',
-      conv: fm.conv || '',
-      deliverables: fm.deliverables ? fm.deliverables.split(',').map((s) => s.trim()).filter(Boolean) : [],
-      body,
-    };
-  }
-
   async function listTasks() {
     const listed = await listDir(TASKS_DIR);
     const items = [];
@@ -802,7 +432,7 @@ ${roster}
   /** 移入回收站（可恢复，不永久删除） */
   function trashPath(p) {
     return new Promise((resolve, reject) => {
-      execFile(join(MINIMAX_HOME, 'bin', 'mavis-trash'), ['--', p], (e) => (e ? reject(e) : resolve()));
+      execFile(join(HOST.minimaxHome, 'bin', 'mavis-trash'), ['--', p], (e) => (e ? reject(e) : resolve()));
     });
   }
 
@@ -882,220 +512,98 @@ ${roster}
     return id;
   }
 
-  /** 联网搜索：cn.bing.com 国内直连 HTML 抓取（无 key 依赖），失败返回 null */
-  async function webSearch(query) {
+  /** 联网搜索：多源降级（必应 → 搜狗 → DuckDuckGo），全部免费无 key。
+   *  每个源独立超时/解析；只保留 http(s) 链接（防 javascript: 等协议注入）。
+   *  返回 { engine, items } 或 null（全挂时调用方要如实说"没搜到"）。 */
+  const SEARCH_ENGINES = [
+    {
+      name: '必应',
+      url: (q) => 'https://cn.bing.com/search?q=' + encodeURIComponent(q) + '&mkt=zh-CN',
+      parse(html, strip) {
+        const items = [];
+        for (const b of html.match(/<li class="b_algo"[\s\S]*?<\/li>/g) || []) {
+          const m = b.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+          if (!m) continue;
+          const p = b.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+          items.push({ title: strip(m[2]), url: m[1], snippet: p ? strip(p[1]).slice(0, 160) : '' });
+          if (items.length >= 5) break;
+        }
+        return items;
+      },
+    },
+    {
+      name: '搜狗',
+      url: (q) => 'https://www.sogou.com/web?query=' + encodeURIComponent(q),
+      parse(html, strip, base) {
+        const items = [];
+        for (const b of html.match(/<h3[^>]*class="vr-title"[\s\S]*?<\/h3>/g) || []) {
+          const m = b.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+          if (!m) continue;
+          let url = m[1];
+          if (url.startsWith('/')) url = new URL(url, base).href; // 搜狗跳转链接
+          items.push({ title: strip(m[2]), url, snippet: '' });
+          if (items.length >= 5) break;
+        }
+        return items;
+      },
+    },
+    {
+      name: 'DuckDuckGo',
+      url: (q) => 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q),
+      parse(html, strip) {
+        const items = [];
+        for (const b of html.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g) || []) {
+          const m = b.match(/href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+          if (!m) continue;
+          items.push({ title: strip(m[2]), url: m[1], snippet: '' });
+          if (items.length >= 5) break;
+        }
+        return items;
+      },
+    },
+  ];
+
+  const HTTP_URL = /^https?:\/\//i;
+
+  async function fetchSearchEngine(engine, query) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), 7000);
     try {
-      const r = await fetch('https://cn.bing.com/search?q=' + encodeURIComponent(query) + '&mkt=zh-CN', {
+      const r = await fetch(engine.url(query), {
         headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0 Safari/537.36' },
         signal: controller.signal,
       });
-      if (!r.ok) throw new Error('search_http_' + r.status);
+      if (!r.ok) throw new Error('http_' + r.status);
       const html = await r.text();
       const strip = (s) => s.replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-      const items = [];
-      for (const b of html.match(/<li class="b_algo"[\s\S]*?<\/li>/g) || []) {
-        const m = b.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-        if (!m) continue;
-        const p = b.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-        items.push({ title: strip(m[2]), url: m[1], snippet: p ? strip(p[1]).slice(0, 160) : '' });
-        if (items.length >= 5) break;
-      }
-      if (!items.length) throw new Error('search_empty');
-      return items;
-    } catch (e) {
-      logError('search', e.message);
-      return null;
+      return engine.parse(html, strip, engine.url(query))
+        .filter((it) => HTTP_URL.test(it.url || '')); // 协议白名单：只放行 http(s)
     } finally {
       clearTimeout(timer);
     }
   }
 
+  async function webSearch(query) {
+    for (const engine of SEARCH_ENGINES) {
+      try {
+        const items = await fetchSearchEngine(engine, query);
+        if (items.length) return { engine: engine.name, items };
+      } catch (e) {
+        logError('search', `${engine.name}: ${e.message}`); // 单源失败静默降级
+      }
+    }
+    return null;
+  }
+
   /** 上下文压缩：超长会话把旧消息压成纪要，模型读纪要 + 最近原文 */
-  async function maybeCompress(convId) {
-    const conv = getConv(convId);
-    if (!llmReady || conv.messages.length <= COMPRESS_TRIGGER) return;
-    const coveredIdx = conv.summary ? conv.messages.findIndex((m) => m.id === conv.summary.upToId) : -1;
-    if (conv.summary && conv.messages.length - (coveredIdx + 1) < COMPRESS_EVERY) return;
-    const cutoff = conv.messages.length - COMPRESS_KEEP;
-    if (cutoff <= coveredIdx + 1) return;
-    const oldMsgs = conv.messages.slice(Math.max(coveredIdx + 1, 0), cutoff);
-    if (!oldMsgs.length) return;
-    const text = oldMsgs.map((m) => `${m.kind === 'user' ? 'Mike' : m.name}: ${m.text}`).join('\n');
-    const prev = conv.summary ? '已有纪要：\n' + conv.summary.text + '\n\n' : '';
-    try {
-      const reply = await callLlm(llm,
-        '你是对话压缩器。把对话历史压缩成纪要，保留：用户偏好与决定、关键事实、未完成的承诺、在做的事。口语化中文，不超过 200 字。',
-        prev + '新增对话：\n' + text + '\n\n请输出合并后的完整纪要（不超过 200 字，直接给纪要本身）：');
-      conv.summary = { text: reply.text, upToId: conv.messages[cutoff - 1].id, at: new Date().toISOString() };
-      await persistChat().catch(() => {});
-      await appendMessage(convId, 'system', '系统', '前面的对话已压缩成纪要（消息都还在，模型读纪要+最近原文）。', 'system');
-      context.logger.info('maige-bot.chat.compressed');
-    } catch (e) {
-      logError('compress', e.message); // 压缩失败不阻塞对话
-    }
-  }
-
-  function buildTranscript(conv, limit) {
-    const recent = conv.messages.slice(-limit);
-    const lines = recent.map((m) => `${m.kind === 'user' ? 'Mike' : m.kind === 'system' ? '【' + m.name + '】' : m.name}: ${m.text}`);
-    const head = conv.summary ? '以下是更早对话的纪要（细节以此为准）：\n' + conv.summary.text + '\n\n' : '';
-    return head + '以下是最近对话：\n\n' + lines.join('\n') + '\n\n现在轮到你发言（只说你要说的话，不要带名字前缀）：';
-  }
-
-  function parseCalls(text, members, alreadySpoke) {
-    const calls = [];
-    for (const m of text.matchAll(/\[\[CALL:([A-Za-z0-9._-]+)\]\]/g)) {
-      const key = m[1];
-      if (key === 'maige' && alreadySpoke.has('maige')) continue;
-      if (members.some((x) => x.key === key) && !alreadySpoke.has(key) && !calls.includes(key)) calls.push(key);
-    }
-    return calls.slice(0, 3); // 一次最多并口叫 3 人，防刷屏
-  }
-
-  /** 执行工具：读/列限定工作区，写只进作品库，搜索走 webSearch。返回 { note } */
-  async function execTool(tool, speakerName, convId) {
-    try {
-      if (tool.name === 'search') {
-        const results = await webSearch(tool.arg);
-        if (!results) return { note: `${speakerName} 搜索「${tool.arg}」失败（网络或反爬拦截）` };
-        // 搜索结果贴成卡片直接可见（不止转述），链接可点
-        await appendMessage(convId, 'system', '搜索', '', 'card', undefined, {
-          title: `搜索「${tool.arg}」· ${results.length} 条`,
-          items: results.map((r) => ({ title: r.title, snippet: r.snippet, url: r.url })),
-        });
-        return {
-          note: `${speakerName} 搜索「${tool.arg}」，搜到 ${results.length} 条：\n`
-            + results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\n${r.url}`).join('\n'),
-        };
-      }
-      if (tool.name === 'read') {
-        const target = await resolveWorkspace(WORKSPACE_ROOT, tool.arg);
-        if (!target) return { note: `${speakerName} 读 ${tool.arg} 被拒：不在工作区内` };
-        const st = await stat(target);
-        if (!st.isFile()) return { note: `${speakerName} 读 ${tool.arg} 失败：不是文件` };
-        if (st.size > 256 * 1024) return { note: `${speakerName} 读 ${tool.arg} 被拒：文件太大（${Math.round(st.size / 1024)} KB > 256 KB）` };
-        const content = await readFile(target, 'utf8');
-        const truncated = content.length > 4000;
-        return {
-          note: `${speakerName} 读了 ${tool.arg}（${(st.size / 1024).toFixed(1)} KB${truncated ? '，已截断' : ''}）：\n`
-            + content.slice(0, 4000),
-        };
-      }
-      if (tool.name === 'ls') {
-        const target = await resolveWorkspace(WORKSPACE_ROOT, tool.arg);
-        if (!target) return { note: `${speakerName} 列 ${tool.arg} 被拒：不在工作区内` };
-        const names = await readdir(target);
-        const shown = names.filter((n) => !n.startsWith('.')).slice(0, 100);
-        return { note: `${speakerName} 列了 ${tool.arg}（${names.length} 项）：\n` + shown.join('\n') };
-      }
-      if (tool.name === 'write') {
-        // 文件名扁平化：禁路径分隔符与穿越，只落在作品库根
-        const fname = tool.arg.replace(/[/\\]/g, '').replace(/^\.+/, '').trim();
-        if (!fname || fname.length > 120) return { note: `${speakerName} 写文件被拒：文件名不合法` };
-        if (!tool.content) return { note: `${speakerName} 写 ${fname} 失败：没有内容` };
-        if (tool.content.length > 100 * 1024) return { note: `${speakerName} 写 ${fname} 被拒：内容超过 100 KB` };
-        const dir = await realpath(config.outputsDir).catch(() => null);
-        if (!dir) return { note: `${speakerName} 写文件失败：作品库目录不存在` };
-        await writeFile(join(dir, fname), tool.content, 'utf8');
-        context.logger.info('maige-bot.tool.write');
-        // 作品内容贴成卡片直接可见（截断预览，全文在作品库）
-        const preview = tool.content.length > 2000 ? tool.content.slice(0, 2000) + '\n…（全文在作品库）' : tool.content;
-        await appendMessage(convId, 'system', '作品', '', 'card', undefined, {
-          title: `📝 ${fname}`,
-          body: preview,
-          footer: `已进作品库 · ${(tool.content.length / 1024).toFixed(1)} KB`,
-        });
-        return { note: `${speakerName} 写了作品「${fname}」（${(tool.content.length / 1024).toFixed(1)} KB），已贴在上面、也进了作品库` };
-      }
-      if (tool.name === 'task') {
-        if (!tool.arg) return { note: `${speakerName} 开整活单失败：没有标题` };
-        if (!tool.content) return { note: `${speakerName} 开整活单失败：没有需求内容` };
-        const kind = TASK_KINDS.includes(tool.kind) ? tool.kind : 'text';
-        const autoReady = AUTO_READY_KINDS.includes(kind); // 非敏感类型直通 ready，Mike 在看板上仍可退回/取消
-        const id = `t-${Date.now().toString(36)}`;
-        await writeTask({
-          id, title: tool.arg.slice(0, 80), kind, status: autoReady ? 'ready' : 'draft',
-          created: new Date().toISOString(), updated: '', createdBy: speakerName, conv: convId,
-          deliverables: [], body: tool.content,
-        });
-        context.logger.info('maige-bot.task.created');
-        // 整活单贴成卡片直接可见（标题/类型/状态/需求预览）
-        const statusLabel = autoReady ? '已就绪免确认' : '待确认';
-        const taskPreview = tool.content.length > 600 ? tool.content.slice(0, 600) + '\n…' : tool.content;
-        await appendMessage(convId, 'system', '整活单', '', 'card', undefined, {
-          title: `📋 ${tool.arg.slice(0, 60)}`,
-          body: `类型：${kind} · 状态：${statusLabel}\n\n${taskPreview}`,
-          footer: autoReady ? '点开始即制作，可在任务区退回/取消' : '等 Mike 确认提示词',
-        });
-        if (autoReady) {
-          notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」（${kind}），已就绪可直接制作`);
-          return { note: `${speakerName} 开了整活单「${tool.arg}」（${kind}，已就绪免确认），已贴在上面，点开始即制作` };
-        }
-        notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」，等你确认提示词`);
-        return { note: `${speakerName} 开了整活单「${tool.arg}」（待确认），已贴在上面` };
-      }
-      if (tool.name === 'hire') {
-        const r = await hireBot({ key: tool.arg, display: tool.display, role: tool.role, persona: tool.content, createdBy: speakerName });
-        if (r.error === 'key_exists') return { note: `${speakerName} 想招 ${tool.display}，但 ${tool.arg} 这个工位已经有人了` };
-        if (r.error) return { note: `${speakerName} 招聘失败：${r.error}` };
-        notify('麦格 · 新成员入职', `${tool.display}（${tool.role}）`);
-        return { note: `新成员 ${tool.display} 已入职（${tool.role}），侧栏可见，可单聊、可进群` };
-      }
-      if (tool.name === 'config') {
-        // 自治边界：麦格不能改自己的配置（防自我开挂）；只能改团队真实成员；值仍走白名单校验
-        if (tool.arg === 'maige') return { note: `${speakerName} 不能改自己的配置（防自我开挂），要改麦格得 Mike 来` };
-        const members = await getMembers();
-        if (!members.some((m) => m.key === tool.arg)) return { note: `${speakerName} 想配的 ${tool.arg} 不在团队里` };
-        const chatModels = (llm?.models ?? []).filter((m) => !NON_CHAT_MODEL.test(m));
-        const nextModels = { ...(config.models || {}) };
-        const nextMaxTokens = { ...(config.maxTokens || {}) };
-        if (tool.field === 'maxTokens') {
-          const n = parseInt(tool.value, 10);
-          if (!Number.isInteger(n) || n < 128 || n > MAX_TOKENS_LIMIT) return { note: `${speakerName} 给 ${tool.arg} 配的 maxTokens「${tool.value}」越界（128~${MAX_TOKENS_LIMIT}）` };
-          nextMaxTokens[tool.arg] = n;
-        } else if (tool.field === 'model') {
-          if (!chatModels.includes(tool.value)) return { note: `${speakerName} 给 ${tool.arg} 配的模型「${tool.value}」不在当前 provider 的对话模型里` };
-          nextModels[tool.arg] = tool.value;
-        }
-        config = await saveConfig({ models: nextModels, maxTokens: nextMaxTokens });
-        context.logger.info('maige-bot.bot.config-by-chief');
-        const after = tool.field === 'maxTokens' ? nextMaxTokens[tool.arg] : nextModels[tool.arg];
-        return { note: `${speakerName} 把 ${tool.arg} 的 ${tool.field} 调成了 ${after}` };
-      }
-      if (tool.name === 'generate_image' || tool.name === 'speak') {
-        const apiKey = minimax.resolveApiKey(process.env, config.minimaxApiKey);
-        if (!apiKey) return { note: `${speakerName} 想生成${tool.name === 'generate_image' ? '图' : '语音'}，但 MiniMax API key 还没配（Mike 在设置里填一下）` };
-        const dir = await realpath(config.outputsDir).catch(() => null);
-        if (!dir) return { note: `${speakerName} 生成失败：作品库目录不存在` };
-        if (tool.name === 'generate_image') {
-          const r = await minimax.generateImage(apiKey, tool.arg);
-          const url = r.imageUrls[0];
-          const imgBuf = await (await fetch(url)).arrayBuffer();
-          const fname = `gen-${Date.now().toString(36)}.jpg`;
-          await writeFile(join(dir, fname), Buffer.from(imgBuf));
-          context.logger.info('maige-bot.tool.generate_image');
-          // 把图直接贴进聊天（media 字段），不止一句"画好了"
-          const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
-          await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'image', url: mediaUrl, name: fname });
-          return { note: `${speakerName} 生成了图「${fname}」，已贴在上面、也进了作品库` };
-        }
-        const r = await minimax.synthesizeSpeech(apiKey, tool.arg);
-        if (!r.audioHex) return { note: `${speakerName} 语音生成走了异步，暂不支持，先这样吧` };
-        const fname = `tts-${Date.now().toString(36)}.mp3`;
-        await writeFile(join(dir, fname), Buffer.from(r.audioHex, 'hex'));
-        context.logger.info('maige-bot.tool.speak');
-        const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
-        await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'audio', url: mediaUrl, name: fname });
-        return { note: `${speakerName} 配了音「${fname}」，已贴在上面、也进了作品库` };
-      }
-      return { note: `${speakerName} 调了个不认识的工具` };
-    } catch (e) {
-      logError('tool', `${speakerName} ${tool.name}: ${e.message}`);
-      return { note: `${speakerName} 工具 ${tool.name} 出错了：${e.message}` };
-    }
-  }
+  /** 消息的可读文本：media/card 消息没有正文，用占位描述，避免空行污染上下文与纪要 */
+  // 工具执行器（工厂注入运行时状态；实现见 core/tools.mjs）
+  const execTool = createToolExecutor({
+    getConfig: () => config,
+    updateConfig: async (patch) => { config = await saveConfig(patch); return config; },
+    context, appendMessage, getMembers, hireBot, writeTask, notify, webSearch, llm, logError,
+    workspaceRoot: WORKSPACE_ROOT,
+  });
 
   /** 最近一条带图用户消息的 dataURL（读文件回 base64），没有则 null */
   async function lastImageDataUrl(conv) {
@@ -1112,199 +620,16 @@ ${roster}
     }
   }
 
-  /** 一位发言者发言：流式产出（draft 实时可见）+ 可用工具（最多 TOOL_ROUNDS 轮）；
-   *  返回最后一条原文（供群聊解析 CALL 接力） */
-  async function speakWithTools(convId, speaker, system) {
-    const conv = getConv(convId);
-    conv.typing = speaker.key;
-    for (let round = 0; round < TOOL_ROUNDS; round++) {
-      let reply;
-      conv.draft = { sender: speaker.key, name: speaker.displayName, text: '' };
-      try {
-        const transcript = buildTranscript(conv, 20);
-        const img = await lastImageDataUrl(conv);
-        const userContent = img
-          ? [{ type: 'text', text: transcript }, { type: 'image_url', image_url: { url: img } }]
-          : transcript;
-        reply = await callLlm(
-          llm,
-          (await withCapabilities(system, speaker.key)) + (await memoryBlock(conv)) + TOOL_PROMPT,
-          userContent,
-          modelFor(speaker.key),
-          (partial) => { conv.draft = { sender: speaker.key, name: speaker.displayName, text: partial }; },
-          maxTokensFor(speaker.key),
-        );
-      } catch (e) {
-        conv.draft = null;
-        logError('chat', `${speaker.displayName}: ${e.message}`);
-        await appendMessage(convId, 'system', '系统', `${speaker.displayName} 信号断了（${e.message}），这轮先到这里。`, 'system');
-        return null;
-      }
-      conv.draft = null;
-      const tool = parseTool(reply.text);
-      if (!tool) {
-        const clean = reply.text.replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
-        if (clean) await appendMessage(convId, speaker.key, speaker.displayName, clean, 'agent', reply.usage);
-        return reply.text;
-      }
-      // WRITE/TASK 的内容不贴进聊天（太长），其余情况下指令之外的独白正常贴出
-      const spoken = reply.text.replace(tool.raw, '').replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
-      if (spoken && tool.name !== 'write' && tool.name !== 'task') {
-        await appendMessage(convId, speaker.key, speaker.displayName, spoken, 'agent', reply.usage);
-      }
-      const result = await execTool(tool, speaker.displayName, convId);
-      await appendMessage(convId, 'system', '工具', result.note, 'system');
-    }
-    await appendMessage(convId, 'system', '系统', `${speaker.displayName} 的工具调用到上限了，先说到这。`, 'system');
-    return null;
-  }
+  // 多 agent 编排器（工厂注入运行时状态；实现见 core/orchestrator.mjs）
+  const {
+    speakWithTools, runDmTurn, runRoundtable, runSprint, runTurn, maybeCompress,
+  } = createOrchestrator({
+    getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
+    withCapabilities, memoryBlock, modelFor, maxTokensFor, execTool, lastImageDataUrl,
+    persistChat, logError, notify, context, llm, llmReady,
+    TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
+  });
 
-  /** 单聊轮转：只有一位发言者（可用工具） */
-  async function runDmTurn(convId, speaker, system) {
-    await speakWithTools(convId, speaker, system);
-  }
-
-  /** 圆桌模式：群里发「圆桌：主题」触发——麦格开场，每位成员一轮，麦格收尾 */
-  async function runRoundtable(convId, topic) {
-    const conv = getConv(convId);
-    if (conv.running) return;
-    conv.running = true;
-    try {
-      const members = await getMembers();
-      const chief = members[0];
-      await appendMessage(convId, 'system', '圆桌', `圆桌开始，主题：${topic}（每位成员一轮，麦格收尾）`, 'system');
-      notify('麦格 · 圆桌', `主题：${topic.slice(0, 60)}`);
-      const order = [chief, ...members.slice(1), chief];
-      for (const m of order) {
-        const base = m.key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(m, 'group');
-        await speakWithTools(convId, m, base
-          + `\n\n【圆桌模式】主题是「${topic}」。轮到你发言：1-3 句口语观点，给真态度，可以反对或补充前面的人；不要客套，不要复述别人的话，不要叫人接棒。`);
-      }
-      await appendMessage(convId, 'system', '圆桌', '圆桌结束', 'system');
-      context.logger.info('maige-bot.roundtable.done');
-    } finally {
-      conv.typing = null;
-      conv.running = false;
-    }
-  }
-
-  /** 攻坚模式：群里发「攻坚：任务」触发——麦格拆任务分工 → 成员多轮讨论（可互 CALL）→ 麦格收口出方案。
-   *  与圆桌的区别：圆桌是一人一轮各说观点；攻坚是围绕一个具体任务，多轮来回直到收敛，产出分工与结论。 */
-  async function runSprint(convId, task) {
-    const conv = getConv(convId);
-    if (conv.running) return;
-    conv.running = true;
-    try {
-      const members = await getMembers();
-      const chief = members[0];
-      await appendMessage(convId, 'system', '攻坚', `攻坚开始，任务：${task}（麦格拆任务 → 成员讨论 → 麦格收口出方案）`, 'system');
-      notify('麦格 · 攻坚', `任务：${task.slice(0, 60)}`);
-      const brief = (m) => (m.key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(m, 'group'))
-        + `\n\n【攻坚模式】当前任务：「${task}」。`;
-      // 第 1 棒：麦格拆任务、点名分工
-      const kickoff = await speakWithTools(convId, chief, brief(chief)
-        + '你是主管，先把这个任务拆成具体子项，用 [[CALL:成员key]] 把活儿派给最该上的人（可同时派多人）。说清楚每人干什么、产出什么。');
-      const spoke = new Set(['maige']);
-      let queue = kickoff ? parseCalls(kickoff, members, spoke) : [];
-      // 中间棒：被点名的人发言（可用工具、可再 CALL 别人接着讨论），最多 8 棒防暴走
-      let hops = 0;
-      while (queue.length && hops < 8) {
-        const batch = queue.filter((k) => !spoke.has(k)).slice(0, 3);
-        if (!batch.length) { // 都在叫已发言的人：挑一个已发言的接着讨论（允许来回）
-          const again = queue.find((k) => members.some((m) => m.key === k));
-          if (!again) break;
-          batch.push(again);
-        }
-        for (const k of batch) spoke.add(k);
-        const texts = await Promise.all(batch.map((key) => {
-          const m = members.find((x) => x.key === key);
-          if (!m) return null;
-          return speakWithTools(convId, m, brief(m)
-            + '轮到你。围绕任务说你这部分怎么做、需要什么配合；可以让别人补充（[[CALL:key]]，对方已说过话也能再叫，攻坚允许来回）。');
-        }));
-        const next = [];
-        for (const tx of texts) {
-          if (!tx) continue;
-          for (const k of parseCalls(tx, members, new Set())) { // 攻坚允许回头叫已发言者
-            if (k !== 'maige' && !next.includes(k)) next.push(k); // 收口前别把麦格叫回来
-          }
-        }
-        queue = next;
-        hops++;
-      }
-      // 收口：麦格汇总讨论产出方案
-      await speakWithTools(convId, chief, brief(chief)
-        + '讨论到这里，你来收口：把大家的意见汇总成一份可执行的方案——谁做什么、产出什么、先后顺序、有没有整活单要开。简洁，能落地。');
-      await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
-      context.logger.info('maige-bot.sprint.done');
-    } finally {
-      conv.typing = null;
-      conv.running = false;
-    }
-  }
-
-  async function runTurn(convId, forcedSpeakerKey) {
-    const conv = getConv(convId);
-    if (conv.running) return; // 进行中的回合结束时会看到新用户消息并续跑，不会漏答
-    conv.running = true;
-    try {
-      const members = await getMembers();
-      let forced = forcedSpeakerKey;
-      for (;;) {
-        await maybeCompress(convId);
-        if (convId === 'chief') {
-          await runDmTurn(convId, { key: 'maige', displayName: '麦格' }, buildChiefSystem(members, 'dm'));
-        } else if (convId.startsWith('m:')) {
-          const speaker = members.find((m) => m.key === convId.slice(2));
-          if (!speaker) {
-            await appendMessage(convId, 'system', '系统', '这位成员不在团队里了。', 'system');
-          } else {
-            await runDmTurn(convId, speaker, buildMemberSystem(speaker, 'dm'));
-          }
-        } else {
-          // 群聊：主管先答，@点名优先，[[CALL:key]] 接力，同棒多人并行（最多 3 人/棒、4 棒/轮）
-          const lastUser = [...conv.messages].reverse().find((m) => m.kind === 'user');
-          let currentKeys;
-          if (typeof forced === 'string' && forced !== 'maige') {
-            currentKeys = [forced];
-          } else if (lastUser) {
-            const mentioned = members.find((m) => m.key !== 'maige'
-              && (lastUser.text.includes('@' + m.displayName) || lastUser.text.includes('@' + m.key)));
-            currentKeys = mentioned ? [mentioned.key] : ['maige'];
-          } else {
-            currentKeys = ['maige'];
-          }
-          const spoke = new Set();
-          for (let hop = 0; hop < 4 && currentKeys.length; hop++) {
-            const batch = currentKeys.filter((k) => !spoke.has(k));
-            if (!batch.length) break;
-            for (const k of batch) spoke.add(k);
-            const texts = await Promise.all(batch.map((key) => {
-              const speaker = members.find((m) => m.key === key);
-              if (!speaker) return null;
-              const system = key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(speaker, 'group');
-              return speakWithTools(convId, speaker, system);
-            }));
-            const next = [];
-            for (const rawText of texts) {
-              if (!rawText) continue;
-              for (const k of parseCalls(rawText, members, spoke)) {
-                if (!next.includes(k)) next.push(k);
-              }
-            }
-            currentKeys = next;
-          }
-        }
-        // 回合结束时若最后一条仍是用户消息（跑的时候又来了新消息），接着答
-        const last = conv.messages[conv.messages.length - 1];
-        if (!last || last.kind !== 'user') break;
-        forced = null;
-      }
-    } finally {
-      conv.typing = null;
-      conv.running = false;
-    }
-  }
 
   async function readMemories() {
     const listed = await listDir(config.memoryDir);
@@ -1334,6 +659,25 @@ ${roster}
     const url = new URL(req.url ?? '/', 'http://miniapp.local');
     const path = url.pathname;
     const method = req.method ?? 'GET';
+
+    // ---------- 来源校验（防浏览器跨站 CSRF） ----------
+    // 本服务无鉴权，任何本机进程/网页都可能打它。判定依据：
+    //  · 浏览器发跨站简单请求时必带 Origin，且带不了自定义头（带即触发 preflight，我们不响应 CORS）
+    //  · curl / 宿主服务端调用不带 Origin —— 不是 CSRF 载体，放行
+    // 所以：带 Origin 的写请求必须带 x-maige-csrf 头；带 body 的写请求必须是 JSON。
+    if (method !== 'GET' && method !== 'HEAD') {
+      const origin = req.headers.origin;
+      if (origin && req.headers['x-maige-csrf'] !== '1') {
+        logError('security', `blocked_origin: ${String(origin).slice(0, 120)} ${method} ${path}`);
+        return sendError(res, 403, 'forbidden_origin');
+      }
+      const contentLength = parseInt(req.headers['content-length'] || '0', 10) || 0;
+      const contentType = String(req.headers['content-type'] || '');
+      if (contentLength > 0 && !/^application\/json\b/i.test(contentType)) {
+        logError('security', `blocked_content_type: ${contentType.slice(0, 80)} ${method} ${path}`);
+        return sendError(res, 415, 'unsupported_media_type');
+      }
+    }
 
     if (method === 'GET' && (path === '/' || path === '/panel')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -1736,14 +1080,15 @@ ${roster}
       // 异步管线：命中搜索词先搜（结果作为系统消息进上下文），再触发回复
       void (async () => {
         if (SEARCH_TRIGGER.test(text)) {
-          const results = await webSearch(text.replace(/^(帮我|请|麻烦)?(联网)?(搜索|搜一下|搜搜|查一下|查查)[:：]?\s*/i, '').slice(0, 120) || text.slice(0, 120));
-          if (results) {
+          const found = await webSearch(text.replace(/^(帮我|请|麻烦)?(联网)?(搜索|搜一下|搜搜|查一下|查查)[:：]?\s*/i, '').slice(0, 120) || text.slice(0, 120));
+          if (found) {
+            const results = found.items;
             await appendMessage(convId, 'system', '联网搜索',
-              '搜到 ' + results.length + ' 条（来自必应，请注意甄别）：\n'
+              '搜到 ' + results.length + ' 条（来自' + found.engine + '，请注意甄别）：\n'
               + results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\n${r.url}`).join('\n'),
               'system');
           } else {
-            await appendMessage(convId, 'system', '联网搜索', '这次没搜到（网络或反爬拦截），只能凭印象答。', 'system');
+            await appendMessage(convId, 'system', '联网搜索', '这次没搜到（几个搜索源都没通），只能凭印象答。', 'system');
           }
         }
         const rt = convId === 'group' ? text.match(/^圆桌[会：:]\s*([\s\S]+)$/) : null;
@@ -1971,6 +1316,7 @@ ${roster}
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
+    clearInterval(scheduleTimer); // 测试/独立运行时也要能干净退出
     context.signal.removeEventListener('abort', onAbort);
     await close(server);
   };
@@ -1978,7 +1324,7 @@ ${roster}
   context.signal.addEventListener('abort', onAbort, { once: true });
   if (context.signal.aborted) await dispose();
 
-  return { dispose, _internals: { parseCalls } };
+  return { dispose };
 }
 
 function listen(server, host, port) {

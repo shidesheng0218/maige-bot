@@ -1,5 +1,25 @@
 # 迭代记录
 
+## 2026-10-16 面板 v0.23.0：P1 安全/可验证 + P2 架构债清理
+- **CSRF 防护（P1）**：浏览器带 `Origin` 的写请求必须带 `x-maige-csrf: 1`（客户端 `api()` 自动加），
+  带 body 的写请求必须是 `application/json`；被拦的请求记入诊断日志。跨站页面无法在不触发
+  preflight 的情况下伪造，堵住"任意网页改本地配置/发消息/招人"的攻击面
+- **安全细节（P1）**：`config.json` 写盘权限收紧到 600（含存量文件启动时修正，防 API key 全局可读）；
+  搜索链接只保留 http(s)（服务端 + 客户端双白名单，防 javascript: 注入）；构建产物 `*.app/` 移出版本库
+- **CI 化（P1）**：新增 `test/unit.test.mjs`（15 项纯函数）与 `test/api.test.mjs`（11 项 API/安全，
+  全部跑在临时目录、不调 LLM）；`.github/workflows/ci.yml` 在 Node 20/22 上跑语法检查 + 测试
+- **宿主适配层（P2）**：新增 `core/host.mjs`，把 MCode 私有布局（插件/agents/config.yaml 路径与格式）
+  全部收口；非 MCode 环境可用 `MAIGE_LLM_BASE_URL`/`MAIGE_LLM_API_KEY`/`MAIGE_LLM_MODELS` 直接跑
+- **模块化（P2）**：server.mjs 1999 → 1345 行；纯逻辑拆到 `core/`（parse/fs/http/llm/tasks/roles/avatar/
+  host），编排与工具层用工厂注入（`core/orchestrator.mjs` / `core/tools.mjs`），每步回归全过
+- **上下文噪声（P2）**：`media`/`card` 消息在 transcript 与压缩里改用占位描述，不再喂空行给模型
+- **i18n 收口（P2）**：卡片改为"服务端给结构化数据、客户端按语言渲染"，去掉硬编码中文与 emoji
+- **搜索多源（P2）**：必应 → 搜狗 → DuckDuckGo 逐级降级（各 7s 超时），单源挂不再等于搜索失败
+- **文档同步（P2）**：AGENTS.md 补齐新工具/攻坚/media/card/CSRF/模块结构/CI；README 增 CI badge、
+  新架构图、非 MCode 运行方式
+- 验证：`node --test test/unit.test.mjs test/api.test.mjs` 26 项全过；`ops/test-panel.mjs` 153 项全过
+- 已知留待下一步：长回合缺预算/取消（P0）——攻坚最坏可跑十几分钟，建议加 token/时间预算 + `/api/chat/stop`
+
 ## 2026-10-14 面板 v0.22.0：输出必须可见——搜索结果/作品/整活单全出实物
 - 用户：「要求输出的内容必须让用户有直接可以看到的感知到」——把"干了活但看不见"的几处全改成直接出实物
 - **搜索结果**：不再只由 bot 转述，直接贴成可点链接的结果卡片（标题+摘要+URL）

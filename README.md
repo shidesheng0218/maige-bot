@@ -1,5 +1,7 @@
 # 麦格（Maige）
 
+[![CI](https://github.com/shidesheng0218/maige-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/shidesheng0218/maige-bot/actions/workflows/ci.yml)
+
 > 住在 MiniMax Code 里的全能搭子：人格化问答 · 联网锐评 · 多模态创作 · 多 agent 团队 · 可视化管理面板。
 
 <img src="maige-outputs/icons-v2/maige.jpg" width="120" alt="麦格" align="right">
@@ -7,7 +9,7 @@
 Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，也什么都能造。
 不为创作者专设：问答、决策、调研、工程、生活、情绪和创作，都是日常。
 
-**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.22.0**
+**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.23.0**
 
 ---
 
@@ -53,14 +55,32 @@ cd maige-bot
 ├── skills/                            # 人格层 + 创作间
 ├── hooks/ + scripts/                  # SessionStart 注入
 └── miniapp/                           # 麦格（内嵌 Mini App）
-    ├── client/index.html              # 面板 UI（零依赖，原生 API）
-    └── node/server.mjs                # 面板服务（群聊引擎/工具层/记忆/作品库/整活单）
+    ├── client/index.html              # 面板 UI（零依赖，原生 API，中英双语）
+    └── node/
+        ├── server.mjs                 # 启动 / 状态 / 路由
+        ├── minimax.mjs                # MiniMax 开放平台客户端（图/语音/视频）
+        └── core/                      # 纯逻辑模块（可单测）
+            ├── host.mjs               # 宿主适配层（路径 + 模型来源，MCode 私有格式只在这里）
+            ├── llm.mjs                # /chat/completions 调用（含 SSE 流式）
+            ├── orchestrator.mjs       # 单聊/群聊/圆桌/攻坚/接力/压缩
+            ├── tools.mjs              # 工具指令执行（读写/搜索/招聘/配置/生成）
+            ├── parse.mjs              # 指令/frontmatter/记忆格式
+            ├── tasks.mjs              # 整活单状态机
+            ├── fs.mjs                 # realpath 白名单边界
+            ├── avatar.mjs             # 程序化头像 + 媒体类型
+            ├── roles.mjs              # 职责 → maxTokens 分档
+            └── http.mjs               # JSON 响应 / body 读取
 
 ~/.minimax/agents/<key>/               # 团队 agent（frontmatter 带 team: maige 即被收录）
+maige-bot/seed/agents/                 # 6 个班底种子（install.sh 铺到上面）
+test/                                  # 零依赖单测/API 测试（CI 跑）
 maige-bot/                             # 项目文档中心（人设/调研/能力包/整活单/迭代记录）
 maige-outputs/                         # 作品库 + 头像素材
-麦格.app                            # 独立 GUI 壳（ops/build-app.sh 生成）
+麦格.app                                # 独立 GUI 壳（ops/build-app.sh 生成，不入库）
 ```
+
+**非 MCode 环境**：设置 `MAIGE_LLM_BASE_URL` / `MAIGE_LLM_API_KEY` / `MAIGE_LLM_MODELS`
+即可接任意 OpenAI 兼容端点，不依赖 `~/.minimax/config.yaml`。
 
 ## 团队
 
@@ -79,8 +99,9 @@ maige-outputs/                         # 作品库 + 头像素材
 ## 验证
 
 ```bash
-node maige-bot/ops/test-panel.mjs        # 153 项 API/安全回归
-node maige-bot/ops/test-tools-e2e.mjs    # 工具层真实 LLM e2e
+node --test test/unit.test.mjs test/api.test.mjs   # CI 同款：零依赖、不调 LLM
+node maige-bot/ops/test-panel.mjs                  # 153 项集成回归（需 MCode + LLM）
+node maige-bot/ops/test-tools-e2e.mjs              # 工具层真实 LLM e2e
 MAIGE_COMPRESS_TRIGGER=6 node maige-bot/ops/test-compress.mjs  # 上下文压缩
 ```
 

@@ -59,7 +59,7 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 
 本目录（`Documents/minimax项目/maige-bot/`）是**项目文档中心**：人设原案、玩法设计、平台调研、迭代记录。
 
-**麦格（Mini App）v0.17.0**：`miniapps/maige-bot/`（已发布，local 来源）
+**麦格（Mini App）v0.23.0**：`miniapps/maige-bot/`（已发布，local 来源）
 - **群聊**：多 agent 实时对话——麦格 Chief 首发、@提及点名、成员人格接话（同棒最多 3 人并行接力）、正在输入状态、
   消息搜索、token 用量（每条消息带消耗，成员栏聚合）；引擎直连 config.yaml 的 OpenAI 兼容 provider（kimi-k3），消息持久化
 - **概览**：KPI（记忆数/作品数/敏感数/麦格版本）、最近记忆与作品、快捷口令速查
@@ -68,7 +68,7 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 - **作品库**：画廊浏览、点击预览（图片大图/音视频内联播放）、目录可切换
 - **设置**：记忆目录与作品目录可配置、插件版本信息
 - 麦格记忆统一落在 `maige-bot/memory/`，每条一个 .md（frontmatter: name/description/source/date/sensitive）
-- 回归测试：`node maige-bot/ops/test-panel.mjs`（136 项 API 与安全检查）
+- 回归测试：`node maige-bot/ops/test-panel.mjs`（153 项集成回归；另有 test/ 零依赖单测 26 项进 CI）
 
 ## 使用方式
 

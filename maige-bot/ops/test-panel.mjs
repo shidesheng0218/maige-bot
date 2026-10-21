@@ -12,7 +12,7 @@ const dataDir = join(ROOT, 'maige-bot/ops/.panel-test-data');
 mkdtempSync; // noop 引用检查
 rmSync(dataDir, { recursive: true, force: true });
 
-const { start, parseTool, resolveWorkspace, maxTokensForRole, avatarSvgFor } = await import(join(ROOT, 'miniapps/maige-bot/miniapp/node/server.mjs'));
+const { start, parseTool, parseCalls, resolveWorkspace, maxTokensForRole, avatarSvgFor } = await import(join(ROOT, 'miniapps/maige-bot/miniapp/node/server.mjs'));
 const ac = new AbortController();
 const base = 'http://127.0.0.1:18321';
 
@@ -73,8 +73,8 @@ try {
   check('resolve traversal blocked', (await resolveWorkspace(ROOT, '../..')) === null);
   check('resolve outside abs blocked', (await resolveWorkspace(ROOT, '/etc/hosts')) === null);
 
-  // 0c. 并行接力解析（parseCalls via _internals）
-  const pc = life._internals.parseCalls;
+  // 0c. 并行接力解析
+  const pc = parseCalls;
   const fakeMembers = ['moke-writer', 'huajiang-visual', 'lengjiao-reviewer'].map((k) => ({ key: k }));
   const spoke0 = new Set();
   check('calls multi parallel', pc('写稿 [[CALL:moke-writer]] 配图 [[CALL:huajiang-visual]]', fakeMembers, spoke0).join(',') === 'moke-writer,huajiang-visual');
