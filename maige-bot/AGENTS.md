@@ -20,7 +20,7 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 | 项目文档中心 | `maige-bot/`（本工作区） | 迭代记到 `ops/changelog.md`，调研存 `research/` |
 | 麦格记忆文件 | `maige-bot/memory/*.md` | 每条一个 .md，frontmatter: name/description/source(user\|maige\|tool)/date/sensitive |
 | 能力包 | `maige-bot/capabilities/*.md` | 每包一个 .md，frontmatter: name/description；面板「能力库」tab 读取，挂到 bot 即注入其 system prompt |
-| 整活单 | `maige-bot/tasks/*.md` | 每张一个 .md，frontmatter: id/title/kind/status/created/updated/createdBy/deliverables；状态机 draft→ready→making→done（image/text 开单直通 ready），面板「任务」tab 与 MCode 会话共享 |
+| 整活单 | `maige-bot/tasks/*.md` | 每张一个 .md，frontmatter: id/title/kind/status/created/updated/createdBy/assignee/deliverables；状态机 draft→ready→making→done（image/text 开单直通 ready），攻坚分工时正文点名即 assignee 到人，成员用 `[[DELIVER]]` 交付成品 |
 
 ## 面板开发约定
 
@@ -50,9 +50,10 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 - **搜索**：多源降级（必应 → 搜狗 → DuckDuckGo，各 7s 超时），只保留 http(s) 链接；失败要诚实
 - **压缩**：会话超阈值把旧消息压成纪要（env MAIGE_COMPRESS_* 可调）；`media`/`card` 消息用占位描述，
   不把空行喂给模型
-- **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]`
+- **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]/[[GENERATE_VIDEO]]/[[DELIVER]]`
   由 `core/tools.mjs` 解析执行；读/列限定工作区，写只进作品库；不给 shell；
-  `[[CONFIG:key:model:值]]` 的值格式是 `provider/model`（裸模型 id 落到默认 provider）
+  `[[CONFIG:key:model:值]]` 的值格式是 `provider/model`（裸模型 id 落到默认 provider）；
+  `[[DELIVER:任务id:文件名]]` 把成品挂回整活单并标记 done（交付契约闭环）
 - **自带模型**：provider 存 `config.providers`（id/name/baseURL/apiKey/models/defaultModel/thinking），
   增删改走 `GET/POST/PUT/DELETE /api/providers`；key 不回显（只回 `hasKey`）；`mcode`/`env` 为保留 id
 - **输出可见**：搜索结果/作品/整活单用 `card` 消息（结构化数据，文案由客户端 i18n 渲染），

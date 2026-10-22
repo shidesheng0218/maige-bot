@@ -37,6 +37,11 @@ export function parseTool(text) {
   if (m) return { name: 'generate_image', arg: m[1].trim(), raw: m[0] };
   m = text.match(/\[\[SPEAK:([^\]\n]+)\]\]/);
   if (m) return { name: 'speak', arg: m[1].trim(), raw: m[0] };
+  // [[DELIVER:任务id:文件名]] 换行后接内容——把成品挂回整活单（验收交付）
+  m = text.match(/\[\[DELIVER:([A-Za-z0-9._-]+):([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
+  if (m) return { name: 'deliver', taskId: m[1].trim(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] };
+  m = text.match(/\[\[GENERATE_VIDEO:([^\]\n]+)\]\]/);
+  if (m) return { name: 'generate_video', arg: m[1].trim(), raw: m[0] };
   return null;
 }
 

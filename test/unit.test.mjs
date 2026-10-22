@@ -49,6 +49,17 @@ test('parseTool: WRITE/TASK 会把指令后的全文作为内容（单条指令�
   assert.equal(parseTool('没有 [['), null);
 });
 
+test('parseTool: DELIVER 与 GENERATE_VIDEO', () => {
+  const d = parseTool('[[DELIVER:t-abc:晨报.md]]\n# 晨报\n今日五条');
+  assert.equal(d.name, 'deliver');
+  assert.equal(d.taskId, 't-abc');
+  assert.equal(d.arg, '晨报.md');
+  assert.match(d.content, /晨报/);
+  const v = parseTool('[[GENERATE_VIDEO:一只猫在跑步]]');
+  assert.equal(v.name, 'generate_video');
+  assert.equal(v.arg, '一只猫在跑步');
+});
+
 // ---------- 接力解析 ----------
 test('parseCalls: 并行、去重、跳过已发言、上限 3', () => {
   const members = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'd' }];
@@ -138,6 +149,18 @@ test('整活单：状态机只允许合法转移', () => {
   assert.deepEqual(TASK_TRANSITIONS.done, []);
   assert.ok(TASK_TRANSITIONS.cancelled.includes('draft'));
   assert.ok(!TASK_TRANSITIONS.draft.includes('done'));
+});
+
+test('整活单：assignee 字段往返', () => {
+  const t = {
+    id: 't2', title: '海报', kind: 'image', status: 'ready', created: '', updated: '',
+    createdBy: 'maige', assignee: 'moke-writer', conv: 'group', deliverables: [], body: '画',
+  };
+  const p = parseTask('t2.md', serializeTask(t));
+  assert.equal(p.assignee, 'moke-writer');
+  // 旧单子没有 assignee 字段也读得出（向后兼容）
+  const legacy = parseTask('t3.md', '---\nid: t3\ntitle: 旧单\nkind: text\nstatus: draft\n---\nbody');
+  assert.equal(legacy.assignee, '');
 });
 
 // ---------- 文件边界 ----------

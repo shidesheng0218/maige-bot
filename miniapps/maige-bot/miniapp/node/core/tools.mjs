@@ -31,6 +31,7 @@ export function createToolExecutor(deps) {
     getConfig, updateConfig, context, appendMessage, getMembers,
     hireBot, writeTask, notify, webSearch, workspaceRoot,
     listProviders, splitModelRef, joinModelRef,
+    readTask,
   } = deps;
 
   /** 执行工具：读/列限定工作区，写只进作品库，搜索走 webSearch。返回 { note } */
@@ -94,9 +95,14 @@ export function createToolExecutor(deps) {
         const kind = TASK_KINDS.includes(tool.kind) ? tool.kind : 'text';
         const autoReady = AUTO_READY_KINDS.includes(kind); // 非敏感类型直通 ready，Mike 在看板上仍可退回/取消
         const id = `t-${Date.now().toString(36)}`;
+        // 攻坚分工：正文里点了谁的名字，单子就挂到谁头上（交付责任到人）
+        const members = await getMembers();
+        const mentioned = members.find((m) => m.key !== 'maige'
+          && (tool.content.includes(m.displayName) || tool.content.includes('@' + m.key)));
         await writeTask({
           id, title: tool.arg.slice(0, 80), kind, status: autoReady ? 'ready' : 'draft',
           created: new Date().toISOString(), updated: '', createdBy: speakerName, conv: convId,
+          assignee: mentioned ? mentioned.key : '',
           deliverables: [], body: tool.content,
         });
         context.logger.info('maige-bot.task.created');
@@ -112,6 +118,35 @@ export function createToolExecutor(deps) {
         }
         notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」，等你确认提示词`);
         return { note: `${speakerName} 开了整活单「${tool.arg}」（待确认），已贴在上面` };
+      }
+      if (tool.name === 'deliver') {
+        // 把成品挂回整活单：内容落作品库 + 单子标记交付（交付契约闭环）
+        if (!readTask) return { note: `${speakerName} 想交付，但任务读取能力没接上` };
+        const task = await readTask(tool.taskId);
+        if (!task) return { note: `${speakerName} 想交付，但找不到整活单 ${tool.taskId}` };
+        if (task.status === 'done') return { note: `整活单「${task.title}」早已交付，别重复贴` };
+        const fname = tool.arg.replace(/[/\\]/g, '').replace(/^\.+/, '').trim();
+        if (!fname || fname.length > 120) return { note: `${speakerName} 交付失败：文件名不合法` };
+        if (!tool.content) return { note: `${speakerName} 交付 ${fname} 失败：没有内容` };
+        if (tool.content.length > 100 * 1024) return { note: `${speakerName} 交付被拒：内容超过 100 KB` };
+        const dir = await realpath(config.outputsDir).catch(() => null);
+        if (!dir) return { note: `${speakerName} 交付失败：作品库目录不存在` };
+        await writeFile(join(dir, fname), tool.content, 'utf8');
+        task.deliverables = [...new Set([...(task.deliverables || []), fname])].slice(0, 20);
+        task.status = 'done';
+        task.updated = new Date().toISOString();
+        await writeTask(task);
+        context.logger.info('maige-bot.task.delivered');
+        // 交付回执：卡片 + 回写到来源会话
+        await appendMessage(convId, 'system', '交付', '', 'card', undefined, {
+          type: 'work', name: fname, body: `整活单「${task.title}」已交付`,
+          size: `${(tool.content.length / 1024).toFixed(1)} KB`,
+        });
+        if (task.conv && task.conv !== convId) {
+          await appendMessage(task.conv, 'system', '整活', `整活单「${task.title}」已交付：${fname}，作品库可见。`, 'system').catch(() => {});
+        }
+        notify('麦格 · 交付', `「${task.title}」已交付：${fname}`);
+        return { note: `${speakerName} 交付了整活单「${task.title}」：${fname} 已进作品库，单子已标记完成` };
       }
       if (tool.name === 'hire') {
         const r = await hireBot({ key: tool.arg, display: tool.display, role: tool.role, persona: tool.content, createdBy: speakerName });
@@ -174,6 +209,33 @@ export function createToolExecutor(deps) {
         const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
         await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'audio', url: mediaUrl, name: fname });
         return { note: `${speakerName} 配了音「${fname}」，已贴在上面、也进了作品库` };
+      }
+      if (tool.name === 'generate_video') {
+        const apiKey = minimax.resolveApiKey(process.env, config.minimaxApiKey);
+        if (!apiKey) return { note: `${speakerName} 想生成视频，但 MiniMax API key 还没配（Mike 在设置里填一下）` };
+        const dir = await realpath(config.outputsDir).catch(() => null);
+        if (!dir) return { note: `${speakerName} 生成失败：作品库目录不存在` };
+        // 视频按秒计费，默认 6 秒 480P——先小后大，别一上来烧大的
+        const t0 = Date.now();
+        const started = await minimax.generateVideo(apiKey, tool.arg, { model: 'MiniMax-H3-Max', duration: 6, resolution: '480P' });
+        // 轮询任务，最长 3 分钟；超时就让单子留在作品库里后续手动拉
+        let videoUrl = null;
+        while (Date.now() - t0 < 180000) {
+          await new Promise((r) => setTimeout(r, 5000));
+          const q = await minimax.queryVideoTask(apiKey, started.taskId).catch(() => null);
+          if (q && (q.status === 'success' || q.status === 'finished') && q.videoUrl) { videoUrl = q.videoUrl; break; }
+          if (q && (q.status === 'failed' || q.status === 'error')) {
+            return { note: `${speakerName} 生成视频失败：任务 ${started.taskId} 失败` };
+          }
+        }
+        if (!videoUrl) return { note: `${speakerName} 的视频任务 ${started.taskId} 还在跑（超过 3 分钟），稍后到作品库看` };
+        const buf = await (await fetch(videoUrl)).arrayBuffer();
+        const fname = `video-${Date.now().toString(36)}.mp4`;
+        await writeFile(join(dir, fname), Buffer.from(buf));
+        context.logger.info('maige-bot.tool.generate_video');
+        const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
+        await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'video', url: mediaUrl, name: fname });
+        return { note: `${speakerName} 生成了视频「${fname}」（6 秒），已贴在上面、也进了作品库` };
       }
       return { note: `${speakerName} 调了个不认识的工具` };
     } catch (e) {

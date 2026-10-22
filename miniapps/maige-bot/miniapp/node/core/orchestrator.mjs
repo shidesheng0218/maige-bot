@@ -310,9 +310,10 @@ export function createOrchestrator(deps) {
         queue = next;
         hops++;
       }
-      // 收口：麦格汇总讨论产出方案
+      // 收口：麦格汇总讨论产出方案，并按分工把子任务开成整活单（assignee 到人）
       await speakWithTools(convId, chief, brief(chief)
-        + '讨论到这里，你来收口：把大家的意见汇总成一份可执行的方案——谁做什么、产出什么、先后顺序、有没有整活单要开。简洁，能落地。');
+        + '讨论到这里，你来收口：把大家的意见汇总成一份可执行的方案——谁做什么、产出什么、先后顺序。'
+        + '方案里需要动手产出成品的部分，直接开整活单分配下去（[[TASK:类型:标题]]，正文写清需求+交付标准），单子会自动挂到对应成员头上。简洁，能落地。');
       await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
       context.logger.info('maige-bot.sprint.done');
     } finally {

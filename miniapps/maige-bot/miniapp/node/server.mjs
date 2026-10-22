@@ -46,7 +46,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.26.0';
+const PANEL_VERSION = '0.27.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -69,10 +69,11 @@ const TOOL_PROMPT = `
 - [[READ:路径]] 读工作区里的文本文件（支持子路径，如 maige-bot/README.md）
 - [[LS:路径]] 列目录（如 maige-bot）
 - [[WRITE:文件名]] 换行后接完整内容——写入作品库（只在交付作品时用；写完把要点说给人听，不要复述全文）
-- [[TASK:类型:标题]] 换行后接需求描述与提示词包——开一张整活单（类型：image/video/audio/text；image/text 开单即就绪、点开始即制作，video/audio 需 Mike 确认。你没有直接生成图/视频的能力，别假装生成了）
+- [[TASK:类型:标题]] 换行后接需求描述与提示词包——开一张整活单（类型：image/video/audio/text；image/text 开单即就绪、点开始即制作，video/audio 需 Mike 确认。你没有直接生成图/视频的能力，别假装生成了。攻坚分工时在正文里点名字，单子自动挂到那个成员头上）
 - [[HIRE:key:职责:显示名]] 换行后接人格与能力说明——现场招聘新成员（key 用小写字母/连字符，如 tech-lead；团队缺角色时先向 Mike 提议并说明理由，他点头后才写指令）
 - [[CONFIG:key:maxTokens:值]] 或 [[CONFIG:key:model:模型id]] —— 调整成员配置（只能改别人，不能改自己；maxTokens 范围 128~1000000，模型限当前 provider 的对话模型）。发现成员被 token 掐脖子或模型不对路时主动调，调完说一句为什么
-- [[GENERATE_IMAGE:提示词]] 文生图、[[SPEAK:文本]] 文转语音——生成物自动进作品库（需要 Mike 已配 MiniMax API key；没配就说没配，别假装生成了）
+- [[GENERATE_IMAGE:提示词]] 文生图、[[SPEAK:文本]] 文转语音、[[GENERATE_VIDEO:提示词]] 文生视频（6 秒起步）——生成物自动进作品库（需要 Mike 已配 MiniMax API key；没配就说没配，别假装生成了）
+- [[DELIVER:任务id:文件名]] 换行后接完整内容——把成品挂回整活单并标记交付（单子分到谁就谁来交付，别替别人交）
 工具结果会以【工具】消息回来，看完接着说你该说的。没事别乱用工具。
 
 【纪律】先说后做等于撒谎：没有写对应指令，就绝不要说「已入职/已写好/已开单/已搜到」。宣布了动作，指令就必须出现在同一条回复里。`;
@@ -296,7 +297,11 @@ export async function start(context) {
       await appendMessage('group', 'scheduler', '定时任务', `【${s.name}】到点`, 'system');
       notify('麦格 · 定时任务', `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在发言`);
       if (llmReady()) {
-        await appendMessage('group', 'user', 'Mike', s.text, 'user');
+        // goal：带产出目标（晨报/调研等），成员按目标跑完并交付
+        const text = s.goal
+          ? `${s.text}\n\n【定时目标】${s.goal}（做完把成品交付进作品库，别只回一句话）`
+          : s.text;
+        await appendMessage('group', 'user', 'Mike', text, 'user');
         await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
       }
       context.logger.info('maige-bot.schedule.fired');
@@ -459,6 +464,18 @@ ${roster}
     await mkdir(TASKS_DIR, { recursive: true });
     t.updated = new Date().toISOString();
     await writeFile(join(TASKS_DIR, `${t.id}.md`), serializeTask(t), 'utf8');
+  }
+
+  /** 读单张整活单（DELIVER 交付用）；不存在返回 null */
+  async function readTask(id) {
+    if (!ID_PATTERN.test(id)) return null;
+    const target = await resolveInside(TASKS_DIR, `${id}.md`);
+    if (!target) return null;
+    try {
+      return parseTask(`${id}.md`, await readFile(target, 'utf8'));
+    } catch {
+      return null;
+    }
   }
 
   // ---------- 系统通知（macOS osascript；测试用 MAIGE_HQ_NO_NOTIFY=1 关闭） ----------
@@ -641,7 +658,7 @@ ${roster}
   const execTool = createToolExecutor({
     getConfig: () => config,
     updateConfig: async (patch) => { config = await saveConfig(patch); return config; },
-    context, appendMessage, getMembers, hireBot, writeTask, notify, webSearch, logError,
+    context, appendMessage, getMembers, hireBot, writeTask, readTask, notify, webSearch, logError,
     workspaceRoot: WORKSPACE_ROOT,
     listProviders: getProviders,
     splitModelRef, joinModelRef,
@@ -1377,6 +1394,8 @@ ${roster}
       const s = {
         id: 's-' + Date.now().toString(36),
         name, text, memberKey, freqType,
+        // goal：带产出目标（晨报/调研等）；有则成员跑完要交付成品进作品库
+        goal: typeof body.goal === 'string' ? body.goal.trim().slice(0, 300) : '',
         time: typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : '09:00',
         minutes: Math.max(1, Math.min(1440, parseInt(body.minutes, 10) || 60)),
         enabled: true,

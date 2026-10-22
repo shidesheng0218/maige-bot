@@ -965,6 +965,10 @@
             <input class="input" id="sch-minutes" type="number" min="1" max="1440" value="60" />
           </div>
         </div>
+        <div class="field">
+          <label for="sch-goal" data-i18n="schedule.goal">产出目标（可选）</label>
+          <input class="input" id="sch-goal" type="text" maxlength="300" placeholder="例如：把成品写成 .md 进作品库" data-i18n-ph="schedule.goal.ph" />
+        </div>
         <div class="form-error" id="sch-error" role="alert"></div>
         <div class="modal-actions">
           <button class="btn" type="button" id="sch-cancel" data-i18n="btn.cancel">取消</button>
@@ -1053,6 +1057,7 @@
           'toast.remembered': '已记住', 'toast.cleared': '已清空',
           'a11y.viewMemory': '查看记忆详情', 'a11y.deleteMemory': '删除记忆',
           'schedule.err.name': '请填写任务名', 'schedule.err.text': '请填写发言内容',
+          'schedule.goal': '产出目标（可选）', 'schedule.goal.ph': '例如：把成品写成 .md 进作品库',
           'empty.outputs': '作品库还是空的', 'empty.outputs.desc': '叫麦格「整活」——画图、做视频、写歌——成品会出现在这里。',
           'empty.outputs.dir': '作品目录还不存在', 'empty.outputs.dir.desc': '麦格生成的作品默认会存到这里；也可以在「设置」里换一个目录。',
           'empty.schedules': '还没有定时任务', 'empty.schedules.desc': '建一个试试：比如每天早上 9 点让麦格发毒舌晨报。',
@@ -1349,7 +1354,7 @@
         schedulesStatus: $('schedules-status'), scheduleList: $('schedule-list'),
         scheduleMask: $('schedule-mask'), scheduleForm: $('schedule-form'),
         schName: $('sch-name'), schMember: $('sch-member'), schText: $('sch-text'),
-        schFreq: $('sch-freq'), schTime: $('sch-time'), schMinutes: $('sch-minutes'),
+        schFreq: $('sch-freq'), schTime: $('sch-time'), schMinutes: $('sch-minutes'), schGoal: $('sch-goal'),
         schTimeWrap: $('sch-time-wrap'), schMinutesWrap: $('sch-minutes-wrap'),
         schError: $('sch-error'), schCancel: $('sch-cancel'), schSubmit: $('sch-submit'),
         themeAuto: $('theme-auto'), themeLight: $('theme-light'), themeDark: $('theme-dark'),
@@ -3013,6 +3018,7 @@
       function openScheduleForm() {
         els.schName.value = '';
         els.schText.value = '';
+        if (els.schGoal) els.schGoal.value = '';
         els.schFreq.value = 'daily';
         els.schTimeWrap.hidden = false;
         els.schMinutesWrap.hidden = true;
@@ -3042,6 +3048,7 @@
             name: name,
             text: text,
             memberKey: els.schMember.value,
+            goal: els.schGoal ? els.schGoal.value.trim() : '',
             freqType: els.schFreq.value,
             time: els.schTime.value,
             minutes: parseInt(els.schMinutes.value, 10) || 60

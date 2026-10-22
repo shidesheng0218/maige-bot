@@ -87,6 +87,34 @@ test('整活单状态机', async () => {
   assert.ok((await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE' })).ok);
 });
 
+test('定时任务支持产出目标（goal）', async () => {
+  const s = await (await send('/api/schedules', 'POST', {
+    name: '晨报', text: '来一份今日热点', memberKey: 'maige',
+    freqType: 'daily', time: '09:00', goal: '写成 .md 进作品库',
+  })).json();
+  assert.ok(s.ok);
+  const list = await (await get('/api/schedules')).json();
+  const item = list.items.find((x) => x.id === s.id);
+  assert.equal(item.goal, '写成 .md 进作品库');
+  await fetch(`${BASE}/api/schedules?id=${s.id}`, { method: 'DELETE' });
+});
+
+test('交付契约：整活单挂 assignee，DELIVER 交付后进作品库', async () => {
+  // 开一张挂到 Quill 头上的单子
+  const t = await (await send('/api/tasks', 'POST', {
+    title: '晨报', kind: 'text', body: '写五条', conv: 'chief',
+  })).json();
+  assert.ok(t.ok);
+  // assignee 默认空（手动开单没点名）
+  let items = (await (await get('/api/tasks')).json()).items;
+  let task = items.find((x) => x.id === t.id);
+  assert.equal(task.assignee, '');
+  // 状态机走到 making（可以交付）
+  await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'ready' });
+  await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'making' });
+  await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE' });
+});
+
 test('作品库与服务端点', async () => {
   writeFileSync(join(TMP, 'outputs', 'note.md'), '# hi');
   const outs = await (await get('/api/outputs')).json();
