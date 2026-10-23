@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const execFileAsync = promisify(execFile);
 import * as minimax from './minimax.mjs';
 import {
   resolveHostPaths, parseLlmYaml, mergeProviders, defaultProviderId,
@@ -46,7 +48,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.27.0';
+const PANEL_VERSION = '0.28.0';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -74,6 +76,7 @@ const TOOL_PROMPT = `
 - [[CONFIG:key:maxTokens:值]] 或 [[CONFIG:key:model:模型id]] —— 调整成员配置（只能改别人，不能改自己；maxTokens 范围 128~1000000，模型限当前 provider 的对话模型）。发现成员被 token 掐脖子或模型不对路时主动调，调完说一句为什么
 - [[GENERATE_IMAGE:提示词]] 文生图、[[SPEAK:文本]] 文转语音、[[GENERATE_VIDEO:提示词]] 文生视频（6 秒起步）——生成物自动进作品库（需要 Mike 已配 MiniMax API key；没配就说没配，别假装生成了）
 - [[DELIVER:任务id:文件名]] 换行后接完整内容——把成品挂回整活单并标记交付（单子分到谁就谁来交付，别替别人交）
+- [[REMEMBER:正文]] —— 对话里发现值得记住的事主动记下（称呼、偏好、进行中的项目、未完成的承诺），之后对话会一直带着；别什么都记，只记真正有用的
 工具结果会以【工具】消息回来，看完接着说你该说的。没事别乱用工具。
 
 【纪律】先说后做等于撒谎：没有写对应指令，就绝不要说「已入职/已写好/已开单/已搜到」。宣布了动作，指令就必须出现在同一条回复里。`;
@@ -555,7 +558,11 @@ ${roster}
   async function maybeCaptureMemory(text) {
     const m = text.match(/^\s*记住[:：]\s*([\s\S]+)$/) || text.match(/^\s*remember[:：]?\s*([\s\S]+)$/i);
     if (!m) return null;
-    const body = m[1].trim();
+    return writeMemoryNote(m[1].trim(), 'user');
+  }
+
+  /** 确定性写记忆（用户触发或 bot 主动 REMEMBER 都用这条）；返回 id 或 null */
+  async function writeMemoryNote(body, source) {
     if (!body) return null;
     const listed = await listDir(config.memoryDir);
     if (!listed.dirExists) return null;
@@ -563,7 +570,7 @@ ${roster}
     await writeFile(join(listed.real, `${id}.md`), serializeMemory({
       name: body.split('\n')[0].slice(0, 40) || '未命名',
       description: body.slice(0, 80).replace(/\r?\n/g, ' '),
-      source: 'user', sensitive: false, body, date: today(),
+      source, sensitive: false, body, date: today(),
     }), 'utf8');
     context.logger.info('maige-bot.memory.captured');
     return id;
@@ -659,6 +666,7 @@ ${roster}
     getConfig: () => config,
     updateConfig: async (patch) => { config = await saveConfig(patch); return config; },
     context, appendMessage, getMembers, hireBot, writeTask, readTask, notify, webSearch, logError,
+    writeMemoryNote,
     workspaceRoot: WORKSPACE_ROOT,
     listProviders: getProviders,
     splitModelRef, joinModelRef,
@@ -1304,6 +1312,28 @@ ${roster}
       const stopped = cancelTurn(convId);
       context.logger.info('maige-bot.chat.stopped', { conv: convId, stopped });
       sendJson(res, 200, { ok: true, stopped });
+      return;
+    }
+
+    // ---------- 数据导出（打包记忆/任务/作品/配置为 zip，落作品库） ----------
+    if (method === 'POST' && path === '/api/data/export') {
+      try {
+        const fname = `maige-backup-${Date.now().toString(36)}.zip`;
+        const dir = await realpath(config.outputsDir).catch(() => null);
+        if (!dir) return sendError(res, 400, 'outputs_dir_missing');
+        const zipPath = join(dir, fname);
+        const paths = [];
+        for (const abs of [config.memoryDir, TASKS_DIR, config.outputsDir, join(context.dataDir, 'config.json')]) {
+          if (await stat(abs).then(() => true).catch(() => false)) paths.push(abs);
+        }
+        if (!paths.length) return sendError(res, 400, 'nothing_to_export');
+        await execFileAsync('zip', ['-r', zipPath, ...paths], { cwd: '/' });
+        context.logger.info('maige-bot.data.exported', { name: fname });
+        sendJson(res, 200, { ok: true, name: fname });
+      } catch (e) {
+        logError('export', e.message);
+        sendError(res, 500, 'export_failed');
+      }
       return;
     }
 

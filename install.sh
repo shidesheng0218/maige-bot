@@ -14,6 +14,17 @@ say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[✗]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# ---------- 更新 ----------
+if [ "${1:-}" = "--update" ]; then
+  say "更新麦格（拉最新代码并重铺插件，保留你的记忆/作品/配置）"
+  [ -d "$ROOT/.git" ] || die "当前目录不是 git 仓库，无法更新"
+  git -C "$ROOT" pull --ff-only
+  # 重铺插件到 ~/.minimax/plugins/（代码变了要同步）
+  cp -R "$ROOT/miniapps/maige-bot/." "$MINIMAX_HOME/plugins/maige-bot/"
+  say "更新完成。你的数据（记忆/作品/配置）在运行时目录，未被触碰。"
+  exit 0
+fi
+
 # ---------- 卸载 ----------
 if [ "${1:-}" = "--uninstall" ]; then
   say "卸载麦格"
@@ -74,7 +85,8 @@ cat <<EOF
   3. 可选：配 MiniMax API key 解锁文生图/语音——面板设置页填，或：
        curl -X PUT http://127.0.0.1:17878/api/config -H 'content-type: application/json' -d '{"minimaxApiKey":"sk-..."}'
   4. 独立运行（脱离 MCode）：node miniapps/maige-bot/miniapp/node/standalone.mjs
-  5. 卸载：./install.sh --uninstall
+  5. 更新到最新版：./install.sh --update
+  6. 卸载：./install.sh --uninstall
 
   项目根默认 \$HOME/Documents/minimax项目，用 MAIGE_ROOT 环境变量覆盖。
   文档：README.md · maige-bot/README.md · maige-bot/AGENTS.md

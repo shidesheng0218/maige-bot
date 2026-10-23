@@ -295,6 +295,35 @@
       .page { padding: 16px; }
       .chat-search { display: none; }
     }
+    @media (max-width: 640px) {
+      /* 手机：会话列表收成可唤出的抽屉，聊天全宽 */
+      .app { flex-direction: column; }
+      .side { width: 100%; height: auto; max-height: 38vh; border-right: none; border-bottom: 1px solid var(--mcode-border); flex-shrink: 0; }
+      .side .brand { padding: 10px 12px 6px; }
+      .side .brand-name { font-size: 13px; }
+      .side .side-list { padding: 4px 6px 8px; }
+      .chat-main { flex: 1; min-height: 0; }
+      .chat-head { padding: 8px 12px; }
+      .chat-head .avatar { width: 32px; height: 32px; }
+      .chat-head-info h2 { font-size: 14px; }
+      .chat-head-actions { gap: 4px; }
+      .chat-head-actions .btn { padding: 5px 8px; font-size: 12px; }
+      .chat-head-actions .btn-text { display: none; }
+      .chat-head-actions .icon-btn { display: inline-flex; }
+      .chat-search { display: none !important; }
+      .chat-body { padding: 8px 10px; }
+      .msg .avatar { width: 26px; height: 26px; font-size: 11px; }
+      .bubble { font-size: 13px; }
+      .chat-input-row { padding: 8px 10px 12px; gap: 6px; }
+      .chat-input-row .input { height: 40px; font-size: 13px; }
+      .modal { margin: 8px; max-width: calc(100vw - 16px); }
+      .provider-form { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .gallery { grid-template-columns: 1fr; }
+      .tab-row { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .tab-row::-webkit-scrollbar { display: none; }
+      .cmd-suggest { width: calc(100% - 20px); margin: 0 10px; }
+    }
     @media (prefers-reduced-motion: reduce) {
       .spinner { animation: none; }
       .btn, .toast, .memory-card, .work-card { transition: none; }
@@ -409,6 +438,12 @@
     .icon-btn.recording { color: #fff; background: var(--mcode-danger); border-color: transparent; animation: rec-pulse 1.2s ease-in-out infinite; }
     @keyframes rec-pulse { 50% { opacity: 0.6; } }
     .attach-preview { width: min(764px, 100%); align-self: center; padding: 8px 24px 0; display: flex; gap: 8px; }
+    /* 快捷口令补全（输入 / 时弹出） */
+    .cmd-suggest { width: min(764px, 100%); align-self: center; margin: 0 auto; background: var(--mcode-surface); border: 1px solid var(--mcode-border); border-radius: 12px; box-shadow: var(--shadow-2); overflow: hidden; }
+    .cmd-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; }
+    .cmd-item:hover, .cmd-item.active { background: var(--mcode-bg-secondary); }
+    .cmd-item .cmd-key { font-family: ui-monospace, monospace; font-size: 12px; color: var(--maige-brand); font-weight: 600; white-space: nowrap; }
+    .cmd-item .cmd-desc { color: var(--mcode-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .attach-chip { position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid var(--mcode-border); box-shadow: var(--shadow-1); }
     .attach-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .attach-chip button {
@@ -550,6 +585,7 @@
       <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
       <div class="chat-typing" id="chat-typing" hidden></div>
       <div class="attach-preview" id="attach-preview" hidden></div>
+      <div class="cmd-suggest" id="cmd-suggest" hidden></div>
       <form class="chat-input-row" id="chat-form">
         <input type="file" id="chat-file" accept="image/*" hidden />
         <button type="button" class="icon-btn" id="chat-attach" data-i18n-aria="chat.attach" aria-label="附图"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="5.8" cy="5.8" r="1.2" fill="currentColor"/><path d="M2.5 11.5 6 8l2.5 2.5L11 8l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -748,6 +784,11 @@
           <div class="toolbar">
             <button class="btn btn-primary" id="save-config" data-i18n="btn.saveConfig">保存目录设置</button>
             <button class="btn" id="reset-config" data-i18n="btn.resetConfig">恢复默认</button>
+          </div>
+          <h2 class="section-title" data-i18n="sec.data">数据</h2>
+          <p class="field-hint" data-i18n="data.hint">所有记忆、整活单、作品、面板配置都是本地文件。可以随时导出带走，或从备份恢复。</p>
+          <div class="toolbar">
+            <button class="btn" id="export-data" data-i18n="btn.exportData">导出全部数据（zip）</button>
           </div>
           <h2 class="section-title" data-i18n="sec.info">插件信息</h2>
           <table class="info-table">
@@ -1013,6 +1054,35 @@
     </div>
   </div>
 
+  <!-- 安装向导：首次打开引导配模型 -->
+  <div class="modal-mask" id="wizard-mask" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+      <h2 id="wizard-title" data-i18n="wizard.title">欢迎使用麦格</h2>
+      <p class="field-hint" data-i18n="wizard.desc">检测到还没有可用的模型服务。麦格需要一个 OpenAI 兼容端点才能聊天——DeepSeek、Kimi、通义、OpenAI、Ollama 都可以。</p>
+      <div class="field">
+        <label for="wz-base" data-i18n="provider.baseURL">Base URL</label>
+        <input class="input mono" id="wz-base" type="text" placeholder="https://api.deepseek.com/v1" />
+      </div>
+      <div class="field">
+        <label for="wz-key" data-i18n="provider.apiKey">API Key</label>
+        <input class="input mono" id="wz-key" type="password" placeholder="sk-..." />
+      </div>
+      <div class="field">
+        <label for="wz-models" data-i18n="provider.models">模型列表（逗号分隔）</label>
+        <input class="input mono" id="wz-models" type="text" placeholder="deepseek-chat, deepseek-reasoner" />
+      </div>
+      <div class="field">
+        <label for="wz-default" data-i18n="provider.defaultModel">默认模型</label>
+        <input class="input mono" id="wz-default" type="text" placeholder="deepseek-chat" />
+      </div>
+      <div class="form-error" id="wz-error" role="alert"></div>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="wz-skip" data-i18n="wizard.skip">先跳过，以后再说</button>
+        <button class="btn btn-primary" type="button" id="wz-save" data-i18n="wizard.save">保存并开始使用</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
 
   <script>
@@ -1044,6 +1114,14 @@
           'provider.err.required': '标识和 Base URL 必填', 'provider.confirmDelete': '删除模型服务「{name}」？引用它的 bot 会回到默认模型。',
           'toast.provider.saved': '模型服务已保存', 'toast.provider.deleted': '模型服务已删除', 'toast.fail.providers': '模型服务操作失败',
           'btn.refresh': '刷新', 'btn.addMemory': '新增记忆', 'btn.addSchedule': '新建任务', 'btn.saveConfig': '保存目录设置', 'btn.resetConfig': '恢复默认',
+          'btn.exportData': '导出全部数据（zip）',
+          'sec.data': '数据',
+          'data.hint': '所有记忆、整活单、作品、面板配置都是本地文件。可以随时导出带走，或从备份恢复。',
+          'wizard.title': '欢迎使用麦格',
+          'wizard.desc': '检测到还没有可用的模型服务。麦格需要一个 OpenAI 兼容端点才能聊天——DeepSeek、Kimi、通义、OpenAI、Ollama 都可以。',
+          'wizard.skip': '先跳过，以后再说',
+          'wizard.save': '保存并开始使用',
+          'toast.data.exported': '已导出到作品库',
           'btn.copyDiag': '复制诊断信息', 'btn.cancel': '取消', 'btn.delete': '删除', 'btn.save': '保存', 'btn.create': '创建', 'btn.close': '关闭', 'btn.edit': '编辑', 'btn.openFile': '打开原文件',
           'btn.clearChat': '清空', 'btn.send': '发送', 'btn.stop': '停止',
           'toast.stopped': '已停止当前回合', 'toast.stopIdle': '当前没有在跑的回合', 'toast.fail.stop': '停止失败',
@@ -1370,6 +1448,11 @@
         outputsStatus: $('outputs-status'), gallery: $('gallery'),
         cfgMemoryDir: $('cfg-memory-dir'), cfgOutputsDir: $('cfg-outputs-dir'),
         cfgBudgetTokens: $('cfg-budget-tokens'), cfgBudgetMinutes: $('cfg-budget-minutes'),
+        cmdSuggest: $('cmd-suggest'),
+        wizardMask: $('wizard-mask'), wzBase: $('wz-base'), wzKey: $('wz-key'),
+        wzModels: $('wz-models'), wzDefault: $('wz-default'), wzError: $('wz-error'),
+        wzSkip: $('wz-skip'), wzSave: $('wz-save'),
+        exportData: $('export-data'),
         saveConfig: $('save-config'), resetConfig: $('reset-config'),
         providerList: $('provider-list'), providerForm: $('provider-form'),
         pvId: $('pv-id'), pvName: $('pv-name'), pvBase: $('pv-base'), pvKey: $('pv-key'),
@@ -1409,26 +1492,79 @@
       function kindLabel(k) { return t(KIND_LABELS[k] || k); }
       var COMMANDS = {
         zh: [
-          { key: '锐评 + 话题', desc: '联网搜索后三段式锐评' },
-          { key: '晨报', desc: '5 条毒舌晨报' },
-          { key: '整活 + 内容', desc: '进入创作流程' },
-          { key: '悲歌', desc: '把吐槽编成歌词' },
-          { key: '播客 + 材料', desc: '生成双人对话音频' },
-          { key: '总结', desc: '总结会话或文件' },
-          { key: '正经 / 别闹', desc: '切换正经模式' },
-          { key: '记住：…', desc: '写入长期记忆' }
+          { key: '/晨报', desc: '5 条毒舌晨报' },
+          { key: '/锐评 话题', desc: '联网搜索后三段式锐评' },
+          { key: '/攻坚 任务', desc: '拆任务分工 → 讨论 → 收口方案' },
+          { key: '/圆桌 主题', desc: '全员一轮观点，麦格收尾' },
+          { key: '/整活 内容', desc: '进入创作流程' },
+          { key: '/悲歌', desc: '把吐槽编成歌词' },
+          { key: '/播客 材料', desc: '生成双人对话音频' },
+          { key: '/总结', desc: '总结会话或文件' },
+          { key: '/正经 / 别闹', desc: '切换正经模式' },
+          { key: '/记住：…', desc: '写入长期记忆' }
         ],
         en: [
-          { key: '锐评 + topic', desc: 'Web search, then a three-part hot take' },
-          { key: '晨报', desc: '5 snarky morning headlines' },
-          { key: '整活 + content', desc: 'Enter creation mode' },
-          { key: '悲歌', desc: 'Turn a rant into song lyrics' },
-          { key: '播客 + material', desc: 'Generate a two-host podcast' },
-          { key: '总结', desc: 'Summarize the session or a file' },
-          { key: '正经 / 别闹', desc: 'Switch to serious mode' },
-          { key: '记住：…', desc: 'Write to long-term memory' }
+          { key: '/晨报', desc: '5 snarky morning headlines' },
+          { key: '/锐评 topic', desc: 'Web search, then a three-part hot take' },
+          { key: '/攻坚 task', desc: 'Break down → discuss → wrap-up plan' },
+          { key: '/圆桌 topic', desc: 'Everyone speaks once, Maige wraps up' },
+          { key: '/整活 content', desc: 'Enter creation mode' },
+          { key: '/悲歌', desc: 'Turn a rant into song lyrics' },
+          { key: '/播客 material', desc: 'Generate a two-host podcast' },
+          { key: '/总结', desc: 'Summarize the session or a file' },
+          { key: '/正经 / 别闹', desc: 'Switch to serious mode' },
+          { key: '/记住：…', desc: 'Write to long-term memory' }
         ]
       };
+
+      var cmdSuggestIdx = -1;
+      function hideCmdSuggest() { els.cmdSuggest.hidden = true; els.cmdSuggest.innerHTML = ''; cmdSuggestIdx = -1; }
+      function showCmdSuggest(q) {
+        var list = (COMMANDS[lang] || COMMANDS.zh).filter(function (c) {
+          return c.key.toLowerCase().startsWith(q.toLowerCase());
+        });
+        if (!list.length) { hideCmdSuggest(); return; }
+        els.cmdSuggest.innerHTML = '';
+        list.forEach(function (c, i) {
+          var item = document.createElement('div');
+          item.className = 'cmd-item' + (i === cmdSuggestIdx ? ' active' : '');
+          item.dataset.key = c.key;
+          var k = document.createElement('span');
+          k.className = 'cmd-key'; k.textContent = c.key;
+          var d = document.createElement('span');
+          d.className = 'cmd-desc';
+          d.textContent = c.desc;
+          item.appendChild(k); item.appendChild(d);
+          item.addEventListener('mousedown', function (e) { e.preventDefault(); pickCmd(c.key); });
+          item.addEventListener('mouseenter', function () { cmdSuggestIdx = i; });
+          els.cmdSuggest.appendChild(item);
+        });
+        els.cmdSuggest.hidden = false;
+      }
+      function pickCmd(key) {
+        els.chatInput.value = key + ' ';
+        hideCmdSuggest();
+        els.chatInput.focus();
+      }
+      function updateCmdSuggest() {
+        var v = els.chatInput.value;
+        if (v.startsWith('/')) showCmdSuggest(v);
+        else hideCmdSuggest();
+      }
+      els.chatInput.addEventListener('input', updateCmdSuggest);
+      els.chatInput.addEventListener('keydown', function (e) {
+        if (els.cmdSuggest.hidden) return;
+        var items = els.cmdSuggest.querySelectorAll('.cmd-item');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); cmdSuggestIdx = (cmdSuggestIdx + 1) % items.length; updateActive(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); cmdSuggestIdx = (cmdSuggestIdx - 1 + items.length) % items.length; updateActive(); }
+        else if (e.key === 'Enter' && cmdSuggestIdx >= 0) { e.preventDefault(); pickCmd(items[cmdSuggestIdx].dataset.key); }
+        else if (e.key === 'Escape') { hideCmdSuggest(); }
+        function updateActive() { items.forEach(function (el, i) { el.classList.toggle('active', i === cmdSuggestIdx); }); }
+      });
+      document.addEventListener('click', function (e) {
+        if (!els.cmdSuggest.hidden && !els.cmdSuggest.contains(e.target) && e.target !== els.chatInput) hideCmdSuggest();
+      });
 
       var pendingDeleteId = null;
       var editingId = null;
@@ -3172,6 +3308,14 @@
       function loadSettings() {
         setTheme(themeOverride);
         loadProviders();
+        // 导出全部数据：打包 zip 到作品库，然后让用户自己取
+        if (els.exportData) {
+          els.exportData.addEventListener('click', function () {
+            api('/api/data/export', { method: 'POST' }).then(function (r) {
+              showToast(t('toast.data.exported') + '：' + (r.name || ''));
+            }).catch(function () { showToast(t('toast.fail.config')); });
+          });
+        }
         api('/api/info').then(function (info) {
           els.cfgMemoryDir.value = info.memoryDir;
           els.cfgOutputsDir.value = info.outputsDir;
@@ -3438,6 +3582,34 @@
         api('/api/chat/members').then(function (data) { chatMembers = data.members || []; }).catch(function () {});
         loadConvs().then(function () { pollChat(true); });
         pollLoop();
+        // 安装向导：检测不到模型服务且首次打开 → 弹出引导
+        (function maybeWizard() {
+          try { if (localStorage.getItem('maige-wizard-done')) return; } catch (e) { /* ignore */ }
+          api('/api/models').then(function (m) {
+            if ((m.models || []).length) return; // 已有可用模型，不打扰
+            els.wizardMask.hidden = false;
+          }).catch(function () { /* 面板没起来 */ });
+          els.wzSkip.addEventListener('click', function () {
+            try { localStorage.setItem('maige-wizard-done', '1'); } catch (e) { /* ignore */ }
+            els.wizardMask.hidden = true;
+          });
+          els.wzSave.addEventListener('click', function () {
+            var base = els.wzBase.value.trim();
+            var key = els.wzKey.value.trim();
+            var models = els.wzModels.value.split(/[,\s]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+            var def = els.wzDefault.value.trim() || models[0] || '';
+            if (!base || !key) { els.wzError.textContent = t('provider.err.required'); return; }
+            api('/api/providers', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: 'user', name: '我的模型', baseURL: base, apiKey: key, models: models, defaultModel: def }),
+            }).then(function () {
+              try { localStorage.setItem('maige-wizard-done', '1'); } catch (e) { /* ignore */ }
+              els.wizardMask.hidden = true;
+              showToast(t('toast.provider.saved'));
+              loadConvs();
+            }).catch(function () { els.wzError.textContent = t('toast.fail.providers'); });
+          });
+        })();
       })();
     })();
   </script>

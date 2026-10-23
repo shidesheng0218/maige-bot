@@ -9,7 +9,7 @@
 Grok 主打"聪明"，麦格主打**全能又有人格**——什么都能聊，也什么都能造。
 不为创作者专设：问答、决策、调研、工程、生活、情绪和创作，都是日常。
 
-**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.27.0**
+**插件名 `maige-bot` · MiniMax Code Plugin V1 · 面板 v0.28.0**
 
 ---
 

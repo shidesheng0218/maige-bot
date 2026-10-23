@@ -155,6 +155,16 @@ export function createToolExecutor(deps) {
         notify('麦格 · 新成员入职', `${tool.display}（${tool.role}）`);
         return { note: `新成员 ${tool.display} 已入职（${tool.role}），侧栏可见，可单聊、可进群` };
       }
+      if (tool.name === 'remember') {
+        // 主动记忆：bot 在对话里发现值得记的事，自动落盘
+        if (!deps.writeMemoryNote) return { note: `${speakerName} 想记东西，但记忆写入没接上` };
+        const body = String(tool.arg || '').trim().slice(0, 2000);
+        if (!body) return { note: `${speakerName} 想记东西，但内容是空的` };
+        const id = await deps.writeMemoryNote(body, 'maige');
+        if (!id) return { note: `${speakerName} 想记东西，但记忆目录不可用` };
+        await appendMessage(convId, 'system', '记忆', `记住了：${body.slice(0, 80)}${body.length > 80 ? '…' : ''}`, 'system');
+        return { note: `${speakerName} 记下了这件事（之后对话里会带上）` };
+      }
       if (tool.name === 'config') {
         // 自治边界：麦格不能改自己的配置（防自我开挂）；只能改团队真实成员；值仍走白名单校验
         if (tool.arg === 'maige') return { note: `${speakerName} 不能改自己的配置（防自我开挂），要改麦格得 Mike 来` };

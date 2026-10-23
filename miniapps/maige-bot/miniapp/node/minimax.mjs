@@ -28,15 +28,18 @@ async function post(apiKey, path, body) {
   }
 }
 
-/** 文本生图（image-01 系）。返回 { imageUrls: [...] }。aspectRatio 如 '1:1' '16:9'。 */
+/** 文本生图（image-01 系）。返回 { imageUrls: [...] }。
+ *  传 refImageUrl 走参考图生图（image-to-image）：以该图为底图按 prompt 改。 */
 export async function generateImage(apiKey, prompt, opts = {}) {
-  const j = await post(apiKey, '/image_generation', {
+  const body = {
     model: opts.model || 'image-01',
     prompt: String(prompt || '').slice(0, 1500),
     aspect_ratio: opts.aspectRatio || '1:1',
     n: 1,
     prompt_optimizer: true,
-  });
+  };
+  if (opts.refImageUrl) body.reference_image = opts.refImageUrl;
+  const j = await post(apiKey, '/image_generation', body);
   const urls = j?.data?.image_urls || j?.image_urls || [];
   if (!urls.length) throw new Error('minimax_image_empty');
   return { imageUrls: urls };

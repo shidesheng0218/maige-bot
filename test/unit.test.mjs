@@ -49,6 +49,13 @@ test('parseTool: WRITE/TASK 会把指令后的全文作为内容（单条指令�
   assert.equal(parseTool('没有 [['), null);
 });
 
+test('parseTool: REMEMBER 主动记忆', () => {
+  const r = parseTool('[[REMEMBER:Mike 不吃辣]]');
+  assert.equal(r.name, 'remember');
+  assert.equal(r.arg, 'Mike 不吃辣');
+  assert.equal(parseTool('[[REMEMBER:]]'), null);
+});
+
 test('parseTool: DELIVER 与 GENERATE_VIDEO', () => {
   const d = parseTool('[[DELIVER:t-abc:晨报.md]]\n# 晨报\n今日五条');
   assert.equal(d.name, 'deliver');

@@ -42,6 +42,9 @@ export function parseTool(text) {
   if (m) return { name: 'deliver', taskId: m[1].trim(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] };
   m = text.match(/\[\[GENERATE_VIDEO:([^\]\n]+)\]\]/);
   if (m) return { name: 'generate_video', arg: m[1].trim(), raw: m[0] };
+  // [[REMEMBER:正文]] 自动捕获记忆（bot 主动记下，无需用户说"记住"）
+  m = text.match(/\[\[REMEMBER:([^\]]+)\]\]/);
+  if (m) return { name: 'remember', arg: m[1].trim(), raw: m[0] };
   return null;
 }
 

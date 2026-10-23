@@ -48,12 +48,17 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
   会话里发「记住：…」确定性落盘
 - **搜索**：多源降级（必应 → 搜狗 → DuckDuckGo，各 7s 超时），只保留 http(s) 链接；失败要诚实
+- **安装向导**：检测不到模型服务且首次打开 → 弹引导配模型；跳过/保存都记 localStorage 不再打扰
+- **数据导出**：设置页「数据」一键导出 zip（记忆/任务/作品/配置），落作品库
+- **快捷口令**：聊天输入框打 `/` 出候选（上下键/Enter/Esc）；口令卡片同步
+- **移动端**：640px 以下会话列表收抽屉、聊天全宽
 - **压缩**：会话超阈值把旧消息压成纪要（env MAIGE_COMPRESS_* 可调）；`media`/`card` 消息用占位描述，
   不把空行喂给模型
-- **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]/[[GENERATE_VIDEO]]/[[DELIVER]]`
+- **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]/[[GENERATE_VIDEO]]/[[DELIVER]]/[[REMEMBER]]`
   由 `core/tools.mjs` 解析执行；读/列限定工作区，写只进作品库；不给 shell；
   `[[CONFIG:key:model:值]]` 的值格式是 `provider/model`（裸模型 id 落到默认 provider）；
-  `[[DELIVER:任务id:文件名]]` 把成品挂回整活单并标记 done（交付契约闭环）
+  `[[DELIVER:任务id:文件名]]` 把成品挂回整活单并标记 done（交付契约闭环）；
+  `[[REMEMBER:正文]]` 主动记忆（bot 发现值得记的事自动落盘）
 - **自带模型**：provider 存 `config.providers`（id/name/baseURL/apiKey/models/defaultModel/thinking），
   增删改走 `GET/POST/PUT/DELETE /api/providers`；key 不回显（只回 `hasKey`）；`mcode`/`env` 为保留 id
 - **输出可见**：搜索结果/作品/整活单用 `card` 消息（结构化数据，文案由客户端 i18n 渲染），

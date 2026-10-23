@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "maige-bot",
   "displayName": "麦格 · 全能搭子",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "住在 MiniMax Code 里的全能 bot，类 Grok 体验：双模式人格陪聊、联网锐评、晨报、记忆偏好，还会画图、做视频、配音、写歌、生成双人播客。自带管理面板（群聊/团队/记忆/作品库/整活单）。叫一声「麦格」就好使。",
   "author": "Mike Shi",
   "icon": "icon.png",
