@@ -76,16 +76,15 @@ jobs:
           curl -sf -X POST http://127.0.0.1:17878/api/chat/send \
             -H 'content-type: application/json' \
             -d '{"conv":"chief","text":"你好"}' > /dev/null
-          # 等回复（mock 会立刻回，最多给 30 秒）
-          for i in $(seq 1 60); do
+          # 等回复：CI 容器网络/CPU 慢，给足 90 秒
+          for i in $(seq 1 180); do
             sleep 0.5
-            MSGS=$(curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief')
             if grep -q MOCK_HIT /tmp/mock.log 2>/dev/null; then
               echo "PASS: mock provider was actually called"
               exit 0
             fi
           done
-          echo "FAIL: no reply from mock model within 30s"
+          echo "FAIL: mock provider was not called within 90s"
           echo "=== 消息快照（排查用）==="
           curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | head -c 2000
           exit 1

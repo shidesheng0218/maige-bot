@@ -260,9 +260,10 @@ test('mergeProviders: 用户配置优先，内建去重', () => {
     { baseURL: 'https://dashscope/v1', apiKey: 'dk', models: ['kimi-k3'] },
     { baseURL: 'https://env/v1', apiKey: 'ek', models: ['e1'] },
   );
-  assert.deepEqual(list.map((p) => p.id), ['openai', 'mcode', 'env']);
-  assert.equal(list[1].builtin, true);
-  assert.equal(list[1].thinking, true); // dashscope 系需要显式关思考
+  // 顺序即优先级：用户自配 > 环境变量 > MCode 内置
+  assert.deepEqual(list.map((p) => p.id), ['openai', 'env', 'mcode']);
+  assert.equal(list[2].builtin, true);
+  assert.equal(list[2].thinking, true); // dashscope 系需要显式关思考
   assert.equal(defaultProviderId(list), 'openai');
   // 同 id 去重（用户配置不会被内建覆盖）
   const dup = mergeProviders([{ id: 'mcode', baseURL: 'https://mine.dev/v1', apiKey: 'x', models: ['q'] }], { baseURL: 'https://d/v1', apiKey: 'dk', models: ['kimi-k3'] }, null);
