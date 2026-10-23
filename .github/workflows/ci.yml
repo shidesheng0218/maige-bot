@@ -79,7 +79,8 @@ jobs:
           # 等回复：CI 容器网络/CPU 慢，给足 90 秒
           for i in $(seq 1 180); do
             sleep 0.5
-            if grep -q MOCK_HIT /tmp/mock.log 2>/dev/null; then
+            # mock 服务 stdout 直接进 CI 日志，所以"被调用"就看消息里有没有 mock 的固定回复
+            if curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | grep -q '（mock 模型已回复）'; then
               echo "PASS: mock provider was actually called"
               exit 0
             fi
