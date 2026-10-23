@@ -23,3 +23,69 @@ jobs:
           node --check miniapps/maige-bot/scripts/session-start.mjs
       - name: Unit + API tests (no LLM, no MCode required)
         run: node --test test/unit.test.mjs test/api.test.mjs
+
+  # 安装冒烟：在干净容器里模拟真实用户的完整路径——clone → install → 起服务 → 发消息 → 验证回复。
+  # 这一步证明"人人可用"不是纸面承诺，而是每次 push 都被验证的事实。
+  install-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install into isolated HOME (no MCode)
+        env:
+          MINIMAX_HOME: /tmp/maige-clean/.minimax
+          MAIGE_ROOT: /tmp/maige-clean/root
+        run: ./install.sh
+      - name: Boot standalone with a mock OpenAI-compatible model
+        env:
+          MAIGE_ROOT: /tmp/maige-clean/root
+          MAIGE_STANDALONE_DATA: /tmp/maige-clean/root/maige-bot/data/standalone
+          MAIGE_LLM_BASE_URL: http://127.0.0.1:18997/v1
+          MAIGE_LLM_API_KEY: sk-smoke
+          MAIGE_LLM_MODELS: mock-chat
+          MAIGE_HQ_NO_NOTIFY: "1"
+          MAIGE_HQ_PORT: "17878"
+        run: |
+          # 起 mock 模型服务（模拟用户的 DeepSeek/Kimi key）
+          cat > /tmp/mock-llm.mjs <<'MOCK'
+          import { createServer } from 'node:http';
+          createServer((req, res) => {
+            let b=''; req.on('data',c=>b+=c); req.on('end',()=>{
+              res.writeHead(200,{'content-type':'application/json'});
+              res.end(JSON.stringify({choices:[{message:{content:'（mock 模型已回复）'}}],usage:{total_tokens:50}}));
+            });
+          }).listen(18997,'127.0.0.1',()=>console.log('mock llm up'));
+          MOCK
+          node /tmp/mock-llm.mjs > /tmp/mock.log 2>&1 &
+          MOCK_PID=$!
+          # 起麦格独立版
+          node miniapps/maige-bot/miniapp/node/standalone.mjs &
+          PANEL_PID=$!
+          # 等服务就绪
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:17878/api/info >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+          # 验证：服务起来了 + 读到了 mock 模型
+          curl -sf http://127.0.0.1:17878/api/diagnostics | grep -q '"llmReady":true'
+          echo "standalone up, llmReady=true"
+      - name: Send a message and verify Maige replies via the mock model
+        run: |
+          curl -sf -X POST http://127.0.0.1:17878/api/chat/send \
+            -H 'content-type: application/json' \
+            -d '{"conv":"chief","text":"你好"}' > /dev/null
+          # 等回复（mock 会立刻回，最多给 30 秒）
+          for i in $(seq 1 60); do
+            sleep 0.5
+            MSGS=$(curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief')
+            if grep -q MOCK_HIT /tmp/mock.log 2>/dev/null; then
+              echo "PASS: mock provider was actually called"
+              exit 0
+            fi
+          done
+          echo "FAIL: no reply from mock model within 30s"
+          echo "=== 消息快照（排查用）==="
+          curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | head -c 2000
+          exit 1

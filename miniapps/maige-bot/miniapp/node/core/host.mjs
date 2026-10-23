@@ -117,7 +117,9 @@ export function normalizeProvider(raw) {
   };
 }
 
-/** 合并用户配置的 provider 与内建 provider（MCode config.yaml / 环境变量），返回按 id 去重的列表 */
+/** 合并用户配置的 provider 与内建 provider（MCode config.yaml / 环境变量），返回按 id 去重的列表。
+ *  顺序即优先级：用户自配 > 环境变量（env） > MCode 内置（mcode）——
+ *  环境变量是用户显式设置的模型来源，理应压过 MCode 自带，否则别人配了自己的模型却用不上。 */
 export function mergeProviders(userProviders, builtinMCode, envProvider) {
   const out = [];
   const seen = new Set();
@@ -128,6 +130,13 @@ export function mergeProviders(userProviders, builtinMCode, envProvider) {
     out.push(n);
   };
   for (const p of Array.isArray(userProviders) ? userProviders : []) push(p);
+  if (envProvider) {
+    push({
+      id: 'env', name: '环境变量', baseURL: envProvider.baseURL, apiKey: envProvider.apiKey,
+      models: envProvider.models || [], defaultModel: envProvider.models?.[0] || '',
+      thinking: false, builtin: true,
+    });
+  }
   if (builtinMCode) {
     const mModels = builtinMCode.models || [];
     // 内建默认模型：优先 kimi-k3（面板历史默认），否则列表第一个
@@ -137,13 +146,6 @@ export function mergeProviders(userProviders, builtinMCode, envProvider) {
       models: mModels, defaultModel: mDefault,
       thinking: true, // dashscope 系：必须显式关思考，否则 reasoning 模型 content 为空
       builtin: true,
-    });
-  }
-  if (envProvider) {
-    push({
-      id: 'env', name: '环境变量', baseURL: envProvider.baseURL, apiKey: envProvider.apiKey,
-      models: envProvider.models || [], defaultModel: envProvider.models?.[0] || '',
-      thinking: false, builtin: true,
     });
   }
   return out;
