@@ -491,8 +491,17 @@ ${roster}
 
   /** 移入回收站（可恢复，不永久删除） */
   function trashPath(p) {
+    // mavis-trash 是 MCode 自带的回收站工具；CI/非 MCode 环境里没有——退化为直接删除
     return new Promise((resolve, reject) => {
-      execFile(join(HOST.minimaxHome, 'bin', 'mavis-trash'), ['--', p], (e) => (e ? reject(e) : resolve()));
+      execFile(join(HOST.minimaxHome, 'bin', 'mavis-trash'), ['--', p], (e) => {
+        if (!e) return resolve();
+        if (e.code === 'ENOENT') {
+          import('node:fs/promises').then(({ rm }) =>
+            rm(p, { recursive: true, force: true }).then(() => resolve(), reject));
+        } else {
+          reject(e);
+        }
+      });
     });
   }
 
