@@ -167,7 +167,7 @@ export function createToolExecutor(deps) {
       }
       if (tool.name === 'config') {
         // 自治边界：麦格不能改自己的配置（防自我开挂）；只能改团队真实成员；值仍走白名单校验
-        if (tool.arg === 'maige') return { note: `${speakerName} 不能改自己的配置（防自我开挂），要改麦格得 Mike 来` };
+        if (tool.arg === 'maige') return { note: `${speakerName} 不能改自己的配置（防自我开挂），要改麦格得老板来` };
         const members = await getMembers();
         if (!members.some((m) => m.key === tool.arg)) return { note: `${speakerName} 想配的 ${tool.arg} 不在团队里` };
         const providers = listProviders();
@@ -196,7 +196,7 @@ export function createToolExecutor(deps) {
       }
       if (tool.name === 'generate_image' || tool.name === 'speak') {
         const apiKey = minimax.resolveApiKey(process.env, config.minimaxApiKey);
-        if (!apiKey) return { note: `${speakerName} 想生成${tool.name === 'generate_image' ? '图' : '语音'}，但 MiniMax API key 还没配（Mike 在设置里填一下）` };
+        if (!apiKey) return { note: `${speakerName} 想生成${tool.name === 'generate_image' ? '图' : '语音'}，但 MiniMax API key 还没配（老板在设置里填一下）` };
         const dir = await realpath(config.outputsDir).catch(() => null);
         if (!dir) return { note: `${speakerName} 生成失败：作品库目录不存在` };
         if (tool.name === 'generate_image') {
@@ -222,7 +222,7 @@ export function createToolExecutor(deps) {
       }
       if (tool.name === 'generate_video') {
         const apiKey = minimax.resolveApiKey(process.env, config.minimaxApiKey);
-        if (!apiKey) return { note: `${speakerName} 想生成视频，但 MiniMax API key 还没配（Mike 在设置里填一下）` };
+        if (!apiKey) return { note: `${speakerName} 想生成视频，但 MiniMax API key 还没配（老板在设置里填一下）` };
         const dir = await realpath(config.outputsDir).catch(() => null);
         if (!dir) return { note: `${speakerName} 生成失败：作品库目录不存在` };
         // 视频按秒计费，默认 6 秒 480P——先小后大，别一上来烧大的

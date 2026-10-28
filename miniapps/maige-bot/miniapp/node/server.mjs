@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
@@ -28,6 +29,10 @@ import { resolveWorkspace, resolveInside, listDir } from './core/fs.mjs';
 import { TASK_TRANSITIONS, TASK_KINDS, serializeTask, parseTask } from './core/tasks.mjs';
 import { createToolExecutor } from './core/tools.mjs';
 import { createOrchestrator } from './core/orchestrator.mjs';
+import {
+  HTTP_URL, stripHtml, FREE_ENGINES, API_ENGINE_DEFS,
+  normalizeSearchProvider, createHealthTracker, buildEngineOrder,
+} from './core/search.mjs';
 
 // 向后兼容：测试与外部脚本从 server.mjs 导入这些纯函数
 export { parseTool, parseCalls, resolveWorkspace, avatarSvgFor, maxTokensForRole };
@@ -71,10 +76,10 @@ const TOOL_PROMPT = `
 - [[READ:路径]] 读工作区里的文本文件（支持子路径，如 maige-bot/README.md）
 - [[LS:路径]] 列目录（如 maige-bot）
 - [[WRITE:文件名]] 换行后接完整内容——写入作品库（只在交付作品时用；写完把要点说给人听，不要复述全文）
-- [[TASK:类型:标题]] 换行后接需求描述与提示词包——开一张整活单（类型：image/video/audio/text；image/text 开单即就绪、点开始即制作，video/audio 需 Mike 确认。你没有直接生成图/视频的能力，别假装生成了。攻坚分工时在正文里点名字，单子自动挂到那个成员头上）
-- [[HIRE:key:职责:显示名]] 换行后接人格与能力说明——现场招聘新成员（key 用小写字母/连字符，如 tech-lead；团队缺角色时先向 Mike 提议并说明理由，他点头后才写指令）
+- [[TASK:类型:标题]] 换行后接需求描述与提示词包——开一张整活单（类型：image/video/audio/text；image/text 开单即就绪、点开始即制作，video/audio 需老板确认。你没有直接生成图/视频的能力，别假装生成了。攻坚分工时在正文里点名字，单子自动挂到那个成员头上）
+- [[HIRE:key:职责:显示名]] 换行后接人格与能力说明——现场招聘新成员（key 用小写字母/连字符，如 tech-lead；团队缺角色时先向老板提议并说明理由，他点头后才写指令）
 - [[CONFIG:key:maxTokens:值]] 或 [[CONFIG:key:model:模型id]] —— 调整成员配置（只能改别人，不能改自己；maxTokens 范围 128~1000000，模型限当前 provider 的对话模型）。发现成员被 token 掐脖子或模型不对路时主动调，调完说一句为什么
-- [[GENERATE_IMAGE:提示词]] 文生图、[[SPEAK:文本]] 文转语音、[[GENERATE_VIDEO:提示词]] 文生视频（6 秒起步）——生成物自动进作品库（需要 Mike 已配 MiniMax API key；没配就说没配，别假装生成了）
+- [[GENERATE_IMAGE:提示词]] 文生图、[[SPEAK:文本]] 文转语音、[[GENERATE_VIDEO:提示词]] 文生视频（6 秒起步）——生成物自动进作品库（需要老板已配 MiniMax API key；没配就说没配，别假装生成了）
 - [[DELIVER:任务id:文件名]] 换行后接完整内容——把成品挂回整活单并标记交付（单子分到谁就谁来交付，别替别人交）
 - [[REMEMBER:正文]] —— 对话里发现值得记住的事主动记下（称呼、偏好、进行中的项目、未完成的承诺），之后对话会一直带着；别什么都记，只记真正有用的
 工具结果会以【工具】消息回来，看完接着说你该说的。没事别乱用工具。
@@ -91,22 +96,47 @@ export async function start(context) {
   const clientEntry = await readFile(join(context.pluginRoot, 'miniapp/client/index.html'));
   const configPath = join(context.dataDir, 'config.json');
 
+  // ---------- 面板访问令牌（防本机任意进程 curl 打 API） ----------
+  // 启动时从 dataDir/panel-token 读取，没有则生成。standalone 启动时把带 token 的 URL 打到 stdout；
+  // MCode 宿主模式由 SessionStart hook 读 token 文件拼出面板链接。测试用 MAIGE_PANEL_TOKEN 固定。
+  const tokenPath = join(context.dataDir, 'panel-token');
+  let panelToken = process.env.MAIGE_PANEL_TOKEN || '';
+  if (!panelToken) {
+    try { panelToken = (await readFile(tokenPath, 'utf8')).trim(); } catch { /* 首次启动 */ }
+    if (!panelToken) {
+      panelToken = randomBytes(24).toString('base64url');
+      await mkdir(context.dataDir, { recursive: true });
+      await writeFile(tokenPath, panelToken + '\n', { encoding: 'utf8', mode: 0o600 }).catch(() => {});
+      await chmod(tokenPath, 0o600).catch(() => {});
+    }
+  }
+  /** 校验请求是否带合法 token：authorization: Bearer <token> 或 ?token=<token>（面板页入口） */
+  function tokenOk(req, url) {
+    if (!panelToken) return true; // 无 token 模式（理论上不应发生，保底放行）
+    const h = req.headers.authorization || '';
+    if (h.startsWith('Bearer ') && h.slice(7).trim() === panelToken) return true;
+    if (url.searchParams.get('token') === panelToken) return true;
+    return false;
+  }
+
   async function loadConfig() {
     try {
       const raw = JSON.parse(await readFile(configPath, 'utf8'));
       return {
         memoryDir: typeof raw.memoryDir === 'string' && raw.memoryDir.trim() ? raw.memoryDir.trim() : DEFAULTS.memoryDir,
         outputsDir: typeof raw.outputsDir === 'string' && raw.outputsDir.trim() ? raw.outputsDir.trim() : DEFAULTS.outputsDir,
+        ownerName: typeof raw.ownerName === 'string' && raw.ownerName.trim() ? raw.ownerName.trim().slice(0, 30) : 'Mike',
         models: sanitizeStringMap(raw.models),
         capabilities: sanitizeCapsMap(raw.capabilities),
         maxTokens: sanitizeMaxTokensMap(raw.maxTokens),
         providers: sanitizeProviders(raw.providers),
+        searchProviders: sanitizeSearchProviders(raw.searchProviders),
         budget: normalizeBudget(raw.budget),
         notifications: raw.notifications !== false,
         minimaxApiKey: typeof raw.minimaxApiKey === 'string' ? raw.minimaxApiKey.trim() : '',
       };
     } catch {
-      return { ...DEFAULTS, models: {}, capabilities: {}, maxTokens: {}, providers: [], budget: normalizeBudget(), notifications: true, minimaxApiKey: '' };
+      return { ...DEFAULTS, ownerName: 'Mike', models: {}, capabilities: {}, maxTokens: {}, providers: [], searchProviders: [], budget: normalizeBudget(), notifications: true, minimaxApiKey: '' };
     }
   }
 
@@ -114,6 +144,12 @@ export async function start(context) {
   function sanitizeProviders(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.map((p) => normalizeProvider(p)).filter(Boolean).slice(0, 10);
+  }
+
+  /** 用户自配搜索源列表（白名单化，key 只留在这里） */
+  function sanitizeSearchProviders(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((p) => normalizeSearchProvider(p)).filter(Boolean).slice(0, 5);
   }
 
   /** bot→model 映射白名单化：key 限 ID_PATTERN，model 限模型 id 字符 */
@@ -304,7 +340,7 @@ export async function start(context) {
         const text = s.goal
           ? `${s.text}\n\n【定时目标】${s.goal}（做完把成品交付进作品库，别只回一句话）`
           : s.text;
-        await appendMessage('group', 'user', 'Mike', text, 'user');
+        await appendMessage('group', 'user', config.ownerName || 'Mike', text, 'user');
         await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
       }
       context.logger.info('maige-bot.schedule.fired');
@@ -354,11 +390,12 @@ export async function start(context) {
   }
 
   function buildChiefSystem(members, mode) {
+    const owner = config.ownerName || 'Mike';
     const roster = members.filter((m) => m.key !== 'maige')
       .map((m) => `- ${m.displayName}（key: ${m.key}）：${m.role}`).join('\n');
     if (mode === 'dm') {
-      return `你是麦格，「麦格团队」的主管（Chief），现在和老板 Mike 单聊（不是群聊）。
-团队成员（闲聊不必提；Mike 有活儿时你可以推荐他去群聊召集大家）：
+      return `你是麦格，「麦格团队」的主管（Chief），现在和老板 ${owner} 单聊（不是群聊）。
+团队成员（闲聊不必提；${owner} 有活儿时你可以推荐他去群聊召集大家）：
 ${roster}
 
 单聊规则：
@@ -368,7 +405,7 @@ ${roster}
 - 保持人格：脑洞大、接梗快、幽默不冒犯；可以调侃但别冒犯老板
 - 不要自我介绍，不要复述规则`;
     }
-    return `你是麦格，「麦格团队」群的主管（Chief）。用户是老板 Mike。
+    return `你是麦格，「麦格团队」群的主管（Chief）。用户是老板 ${owner}。
 群里成员：
 ${roster}
 
@@ -382,12 +419,13 @@ ${roster}
   }
 
   function buildMemberSystem(member, mode) {
+    const owner = config.ownerName || 'Mike';
     if (mode === 'dm') {
       return `${member.system}
 
 【人格】${member.persona}
 
-你在和老板 Mike 单聊（不是群聊）。
+你在和老板 ${owner} 单聊（不是群聊）。
 规则：
 - 口语短句，别写报告体，别堆标题列表
 - 语言跟随用户：他说中文你回中文，他说英文你回英文（挂载的能力包另有约定时听能力包的）
@@ -398,7 +436,7 @@ ${roster}
 
 【人格】${member.persona}
 
-你现在在「麦格团队」的群聊里。麦格是主管，Mike 是老板（用户）。
+你现在在「麦格团队」的群聊里。麦格是主管，${owner} 是老板（用户）。
 群聊规则：
 - 口语短句发言，别写报告体，别堆标题列表
 - 语言跟随用户：他说中文你回中文，他说英文你回英文（挂载的能力包另有约定时听能力包的）
@@ -556,7 +594,7 @@ ${roster}
           return { m, score };
         }).sort((a, b) => b.score - a.score || (b.m.date || '').localeCompare(a.m.date || '')).map((x) => x.m);
       }
-      return '\n\n【你记得的事（关于 Mike 和他的项目，自然使用，不要背诵）】\n'
+      return '\n\n【你记得的事（关于 ' + (config.ownerName || 'Mike') + ' 和他的项目，自然使用，不要背诵）】\n'
         + ranked.slice(0, 30).map((m) => `- ${m.name}：${m.description || m.body.slice(0, 80)}`).join('\n');
     } catch {
       return '';
@@ -585,60 +623,11 @@ ${roster}
     return id;
   }
 
-  /** 联网搜索：多源降级（必应 → 搜狗 → DuckDuckGo），全部免费无 key。
-   *  每个源独立超时/解析；只保留 http(s) 链接（防 javascript: 等协议注入）。
-   *  返回 { engine, items } 或 null（全挂时调用方要如实说"没搜到"）。 */
-  const SEARCH_ENGINES = [
-    {
-      name: '必应',
-      url: (q) => 'https://cn.bing.com/search?q=' + encodeURIComponent(q) + '&mkt=zh-CN',
-      parse(html, strip) {
-        const items = [];
-        for (const b of html.match(/<li class="b_algo"[\s\S]*?<\/li>/g) || []) {
-          const m = b.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-          if (!m) continue;
-          const p = b.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-          items.push({ title: strip(m[2]), url: m[1], snippet: p ? strip(p[1]).slice(0, 160) : '' });
-          if (items.length >= 5) break;
-        }
-        return items;
-      },
-    },
-    {
-      name: '搜狗',
-      url: (q) => 'https://www.sogou.com/web?query=' + encodeURIComponent(q),
-      parse(html, strip, base) {
-        const items = [];
-        for (const b of html.match(/<h3[^>]*class="vr-title"[\s\S]*?<\/h3>/g) || []) {
-          const m = b.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-          if (!m) continue;
-          let url = m[1];
-          if (url.startsWith('/')) url = new URL(url, base).href; // 搜狗跳转链接
-          items.push({ title: strip(m[2]), url, snippet: '' });
-          if (items.length >= 5) break;
-        }
-        return items;
-      },
-    },
-    {
-      name: 'DuckDuckGo',
-      url: (q) => 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q),
-      parse(html, strip) {
-        const items = [];
-        for (const b of html.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g) || []) {
-          const m = b.match(/href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-          if (!m) continue;
-          items.push({ title: strip(m[2]), url: m[1], snippet: '' });
-          if (items.length >= 5) break;
-        }
-        return items;
-      },
-    },
-  ];
+  /** 联网搜索：可插拔多源（API 层有 key 的在前 + 免费层兜底），健康度降权，独立超时。
+   *  只保留 http(s) 链接（防 javascript: 注入）。返回 { engine, items } 或 null（全挂时如实说"没搜到"）。 */
+  const searchHealth = createHealthTracker();
 
-  const HTTP_URL = /^https?:\/\//i;
-
-  async function fetchSearchEngine(engine, query) {
+  async function fetchFreeEngine(engine, query) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
     try {
@@ -648,20 +637,30 @@ ${roster}
       });
       if (!r.ok) throw new Error('http_' + r.status);
       const html = await r.text();
-      const strip = (s) => s.replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-      return engine.parse(html, strip, engine.url(query))
+      return engine.parse(html, engine.url(query))
         .filter((it) => HTTP_URL.test(it.url || '')); // 协议白名单：只放行 http(s)
     } finally {
       clearTimeout(timer);
     }
   }
 
+  async function runSearchEngine(engine, query) {
+    if (engine.kind === 'api') {
+      const items = await engine.def.search(query, engine.apiKey, fetch);
+      return items.filter((it) => HTTP_URL.test(it.url || ''));
+    }
+    return fetchFreeEngine(engine, query);
+  }
+
   async function webSearch(query) {
-    for (const engine of SEARCH_ENGINES) {
+    const engines = buildEngineOrder(config.searchProviders, searchHealth);
+    for (const engine of engines) {
       try {
-        const items = await fetchSearchEngine(engine, query);
-        if (items.length) return { engine: engine.name, items };
+        const items = await runSearchEngine(engine, query);
+        if (items.length) { searchHealth.recordSuccess(engine.id); return { engine: engine.name, items }; }
+        searchHealth.recordFailure(engine.id); // 空结果也算失败（可能被反爬）
       } catch (e) {
+        searchHealth.recordFailure(engine.id);
         logError('search', `${engine.name}: ${e.message}`); // 单源失败静默降级
       }
     }
@@ -704,6 +703,7 @@ ${roster}
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
     persistChat, logError, notify, context,
+    getOwnerName: () => config.ownerName || 'Mike',
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
     getBudget,
   });
@@ -757,9 +757,45 @@ ${roster}
       }
     }
 
+    // ---------- 访问令牌校验（防本机任意进程直接 curl 打 API） ----------
+    // 规则：
+    //  · /panel 页面入口允许带 ?token= 或不带（由前端拿 token 后再换 /api/auth 握手）
+    //  · 其余 /api/* 一律要求 token（authorization: Bearer 或 ?token=）
+    //  · token 只对读 GET 放宽到「面板页 + 头像/作品等媒体资源」，写操作一律强校验
+    const isApi = path.startsWith('/api/');
+    if (isApi && path !== '/api/auth' && !tokenOk(req, url)) {
+      // 媒体/头像这类被 <img>/<audio> 直接引用的 GET 资源，浏览器带不了自定义头，
+      // 但这些是只读且内容不敏感，放行以保证面板能正常渲染；其余一律 401。
+      const isMediaRead = method === 'GET' && (path === '/api/avatar' || path === '/api/outputs/file' || path === '/api/chat/image');
+      if (!isMediaRead) {
+        logError('security', `blocked_no_token: ${method} ${path}`);
+        return sendError(res, 401, 'unauthorized');
+      }
+    }
+
+    // ---------- 握手：前端拿 URL 里的 token 换「已认证」确认（之后走 sessionStorage + Bearer） ----------
+    if (method === 'GET' && path === '/api/auth') {
+      if (!tokenOk(req, url)) return sendError(res, 401, 'unauthorized');
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (method === 'GET' && (path === '/' || path === '/panel')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(clientEntry);
+      return;
+    }
+
+    // ---------- 静态资源（拆分的客户端 JS/CSS 模块）：限定在 client 目录内（支持子路径，realpath 白名单） ----------
+    if (method === 'GET' && path.startsWith('/static/')) {
+      const clientDir = join(context.pluginRoot, 'miniapp/client');
+      const target = await resolveWorkspace(clientDir, path.slice('/static/'.length));
+      if (!target) return sendError(res, 404, 'not_found');
+      const ext = extOf(target);
+      const mime = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' }[ext];
+      if (!mime) return sendError(res, 404, 'not_found'); // 只放行白名单类型
+      const content = await readFile(target);
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' });
+      res.end(content);
       return;
     }
 
@@ -819,6 +855,7 @@ ${roster}
         maigeVersion,
         memoryDir: config.memoryDir,
         outputsDir: config.outputsDir,
+        ownerName: config.ownerName || 'Mike',
         budget: getBudget(),
         notifications: config.notifications !== false,
       });
@@ -1108,6 +1145,43 @@ ${roster}
       return;
     }
 
+    // ---------- 搜索源（API 层，用户配 key 启用；免费层兜底无需配置） ----------
+    if (method === 'GET' && path === '/api/search-providers') {
+      sendJson(res, 200, {
+        // 可用 API 引擎（定义在 core/search.mjs），附当前是否已配 key
+        engines: Object.entries(API_ENGINE_DEFS).map(([id, def]) => ({
+          id, name: def.name,
+          configured: (config.searchProviders || []).some((p) => p.engine === id),
+        })),
+        // 免费层（兜底，无需 key）
+        free: FREE_ENGINES.map((e) => ({ id: e.id, name: e.name })),
+        // 健康度快照（诊断用）
+        health: searchHealth.snapshot(),
+      });
+      return;
+    }
+
+    if (method === 'POST' && path === '/api/search-providers') {
+      const body = await readBody(req);
+      const n = normalizeSearchProvider(body);
+      if (!n) return sendError(res, 400, 'invalid_search_provider');
+      const list = (config.searchProviders || []).filter((x) => x.engine !== n.engine);
+      config = await saveConfig({ searchProviders: [...list, n] });
+      context.logger.info('maige-bot.search-provider.saved', { engine: n.engine });
+      sendJson(res, 200, { ok: true, engine: n.engine });
+      return;
+    }
+
+    if (method === 'DELETE' && path === '/api/search-providers') {
+      const engine = url.searchParams.get('engine') ?? '';
+      const list = config.searchProviders || [];
+      if (!list.some((x) => x.engine === engine)) return sendError(res, 404, 'not_found');
+      config = await saveConfig({ searchProviders: list.filter((x) => x.engine !== engine) });
+      context.logger.info('maige-bot.search-provider.removed', { engine });
+      sendJson(res, 200, { ok: true, engine });
+      return;
+    }
+
     if (method === 'GET' && path === '/api/capabilities') {
       const packs = await listPacks();
       const capsMap = config.capabilities || {};
@@ -1233,7 +1307,7 @@ ${roster}
         const members = await getMembers();
         if (!members.some((m) => m.key === convId.slice(2))) return sendError(res, 404, 'member_not_found');
       }
-      await appendMessage(convId, 'user', 'Mike', text || '看看这张图', 'user');
+      await appendMessage(convId, 'user', config.ownerName || 'Mike', text || '看看这张图', 'user');
       if (imageId) {
         const c = getConv(convId);
         c.messages[c.messages.length - 1].image = imageId;
@@ -1291,7 +1365,7 @@ ${roster}
       if (conv.summary) parts.push(`> 更早的内容已压缩为纪要：${conv.summary.text}`);
       for (const m of conv.messages) {
         if (m.kind === 'system') parts.push(`> 【${m.name}】${m.text}`);
-        else parts.push(`**${m.kind === 'user' ? 'Mike' : m.name}** · ${fmtT(m.at)}\n\n${m.text}`);
+        else parts.push(`**${m.kind === 'user' ? (config.ownerName || 'Mike') : m.name}** · ${fmtT(m.at)}\n\n${m.text}`);
       }
       const md = `# ${title}\n\n导出时间：${fmtT(new Date().toISOString())} · 共 ${conv.messages.length} 条\n\n`
         + parts.join('\n\n---\n\n') + '\n';
@@ -1472,6 +1546,7 @@ ${roster}
         messageCount: Object.values(convs).reduce((n, c) => n + c.messages.length, 0),
         convCount: Object.keys(convs).length,
         scheduleCount: schedules.length,
+        searchHealth: searchHealth.snapshot(),
         summaries,
         errors,
       });
@@ -1485,6 +1560,11 @@ ${roster}
       if (typeof body.outputsDir === 'string') next.outputsDir = body.outputsDir.trim();
       if (typeof body.notifications === 'boolean') next.notifications = body.notifications;
       if (typeof body.minimaxApiKey === 'string') next.minimaxApiKey = body.minimaxApiKey.trim();
+      if (typeof body.ownerName === 'string') {
+        const n = body.ownerName.trim().slice(0, 30);
+        if (!n) return sendError(res, 400, 'invalid_owner_name');
+        next.ownerName = n;
+      }
       if (body.budget && typeof body.budget === 'object') next.budget = normalizeBudget(body.budget);
       for (const key of ['memoryDir', 'outputsDir']) {
         if (next[key] && (next[key].includes('\0') || !next[key].startsWith('/'))) {

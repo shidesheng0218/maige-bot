@@ -4,6 +4,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { start } from './server.mjs';
 
 const HOME = process.env.HOME || homedir();
@@ -23,7 +24,11 @@ const life = await start({
     warn: (...a) => console.warn('[maige-bot]', ...a),
   },
 });
-console.log(`[maige-bot] 麦格独立版已启动: http://127.0.0.1:${PORT}/panel`);
+// 读取访问令牌，把带 token 的完整面板 URL 打到 stdout（token 只在本地文件与内存）
+let token = '';
+try { token = (await readFile(join(dataDir, 'panel-token'), 'utf8')).trim(); } catch { /* 未生成 */ }
+const url = `http://127.0.0.1:${PORT}/panel` + (token ? `?token=${token}` : '');
+console.log(`[maige-bot] 麦格独立版已启动: ${url}`);
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {

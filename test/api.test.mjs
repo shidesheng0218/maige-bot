@@ -18,6 +18,7 @@ process.env.MAIGE_TASKS_DIR = join(TMP, 'tasks');
 process.env.MAIGE_AGENTS_DIR = join(TMP, 'agents');
 process.env.MAIGE_ICONS_DIRS = join(TMP, 'icons');
 process.env.MAIGE_LLM_CONFIG = join(TMP, 'no-such-config.yaml');
+process.env.MAIGE_PANEL_TOKEN = 'test-token-abc'; // 固定令牌，验证 API 鉴权
 delete process.env.MAIGE_LLM_BASE_URL;
 delete process.env.MAIGE_LLM_API_KEY;
 
@@ -43,8 +44,8 @@ after(async () => {
   rmSync(TMP, { recursive: true, force: true });
 });
 
-const jsonHeaders = { 'content-type': 'application/json' };
-const get = (p) => fetch(BASE + p);
+const jsonHeaders = { 'content-type': 'application/json', authorization: 'Bearer test-token-abc' };
+const get = (p) => fetch(BASE + p, { headers: { authorization: 'Bearer test-token-abc' } });
 const send = (p, method, body, extra = {}) => fetch(BASE + p, {
   method, headers: { ...jsonHeaders, ...extra }, body: body === undefined ? undefined : JSON.stringify(body),
 });
@@ -53,6 +54,33 @@ test('面板页可访问', async () => {
   const r = await get('/panel');
   assert.equal(r.status, 200);
   assert.match(await r.text(), /麦格/);
+});
+
+test('访问令牌：无 token 的 API 请求被 401 拦截，带 token 放行，媒体资源例外', async () => {
+  // 不带 token 的写请求 → 401
+  const noAuth = await fetch(BASE + '/api/memories', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-maige-csrf': '1' },
+    body: JSON.stringify({ name: 'x', body: 'y' }),
+  });
+  assert.equal(noAuth.status, 401, '无 token 的写请求应被 401');
+  // 不带 token 的读请求 → 401
+  const noAuthGet = await fetch(BASE + '/api/memories');
+  assert.equal(noAuth.status, 401, '无 token 的读请求应被 401');
+  // 错 token → 401
+  const badAuth = await fetch(BASE + '/api/overview', { headers: { authorization: 'Bearer wrong' } });
+  assert.equal(badAuth.status, 401);
+  // /api/auth 握手：正确 token 放行
+  const auth = await fetch(BASE + '/api/auth?token=test-token-abc');
+  assert.equal(auth.status, 200);
+  const authBad = await fetch(BASE + '/api/auth?token=wrong');
+  assert.equal(authBad.status, 401);
+  // 媒体资源（头像）对 GET 放行（面板 <img> 直接引用，带不了自定义头）
+  const avatar = await fetch(BASE + '/api/avatar?key=maige');
+  assert.equal(avatar.status, 200, '头像 GET 应无 token 放行');
+  // 面板页本身不带 token 也能开（前端再握手）
+  const panel = await fetch(BASE + '/panel');
+  assert.equal(panel.status, 200);
 });
 
 test('概览与记忆列表（fixture 隔离）', async () => {
@@ -72,8 +100,8 @@ test('记忆 CRUD 与路径穿越防护', async () => {
   assert.ok(upd.ok);
   list = await (await get('/api/memories')).json();
   assert.equal(list.items.find((i) => i.id === created.id).body, '新正文');
-  assert.ok((await fetch(`${BASE}/api/memories?id=${created.id}`, { method: 'DELETE' })).ok);
-  assert.equal((await fetch(`${BASE}/api/memories?id=..%2F..%2Fetc%2Fpasswd`, { method: 'DELETE' })).status, 400);
+  assert.ok((await fetch(`${BASE}/api/memories?id=${created.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
+  assert.equal((await fetch(`${BASE}/api/memories?id=..%2F..%2Fetc%2Fpasswd`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).status, 400);
 });
 
 test('整活单状态机', async () => {
@@ -84,7 +112,7 @@ test('整活单状态机', async () => {
   assert.ok((await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'making' })).ok);
   assert.ok((await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'done', deliverables: ['a.png'] })).ok);
   assert.equal((await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'ready' })).status, 409); // done 终态
-  assert.ok((await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE' })).ok);
+  assert.ok((await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
 });
 
 test('定时任务支持产出目标（goal）', async () => {
@@ -96,7 +124,7 @@ test('定时任务支持产出目标（goal）', async () => {
   const list = await (await get('/api/schedules')).json();
   const item = list.items.find((x) => x.id === s.id);
   assert.equal(item.goal, '写成 .md 进作品库');
-  await fetch(`${BASE}/api/schedules?id=${s.id}`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/schedules?id=${s.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('交付契约：整活单挂 assignee，DELIVER 交付后进作品库', async () => {
@@ -112,7 +140,7 @@ test('交付契约：整活单挂 assignee，DELIVER 交付后进作品库', asy
   // 状态机走到 making（可以交付）
   await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'ready' });
   await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'making' });
-  await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('作品库与服务端点', async () => {
@@ -147,9 +175,9 @@ test('团队扫描与招聘/移除（fixture agents）', async () => {
   const hire = await send('/api/team', 'POST', { key: 'test-bot-api', display: 'TestBot', role: '测试：回归专用', persona: '你是 TestBot。' });
   assert.ok(hire.ok);
   assert.equal((await send('/api/team', 'POST', { key: 'test-bot-api', display: 'X', role: 'x' })).status, 409);
-  assert.equal((await fetch(`${BASE}/api/team?key=maige`, { method: 'DELETE' })).status, 400);
-  assert.equal((await fetch(`${BASE}/api/team?key=worker`, { method: 'DELETE' })).status, 404);
-  assert.ok((await fetch(`${BASE}/api/team?key=test-bot-api`, { method: 'DELETE' })).ok);
+  assert.equal((await fetch(`${BASE}/api/team?key=maige`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).status, 400);
+  assert.equal((await fetch(`${BASE}/api/team?key=worker`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).status, 404);
+  assert.ok((await fetch(`${BASE}/api/team?key=test-bot-api`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
 });
 
 test('CSRF：带 Origin 的写请求必须带 x-maige-csrf', async () => {
@@ -160,13 +188,13 @@ test('CSRF：带 Origin 的写请求必须带 x-maige-csrf', async () => {
   assert.equal(ok.status, 200);
   // 清掉刚建的条目
   const id = (await ok.json()).id;
-  await fetch(`${BASE}/api/memories?id=${id}`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/memories?id=${id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('CSRF：带 body 的写请求必须是 JSON', async () => {
   const r = await fetch(BASE + '/api/memories', {
     method: 'POST',
-    headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-maige-csrf': '1' },
+    headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-maige-csrf': '1', authorization: 'Bearer test-token-abc' },
     body: JSON.stringify({ name: 'x', body: 'y' }),
   });
   assert.equal(r.status, 415);
@@ -218,7 +246,7 @@ test('自带模型：新增 / 更新 / 删除 provider', async () => {
   let bot = await (await get('/api/bot?key=maige')).json();
   assert.equal(bot.model, 'openai/gpt-4o');
   assert.equal(bot.modelOverride, 'openai/gpt-4o');
-  assert.ok((await fetch(`${BASE}/api/providers?id=openai`, { method: 'DELETE' })).ok);
+  assert.ok((await fetch(`${BASE}/api/providers?id=openai`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
   bot = await (await get('/api/bot?key=maige')).json();
   assert.equal(bot.modelOverride, null, '删除 provider 后 bot 应回到默认');
 });
@@ -238,7 +266,7 @@ test('自带模型：每个 bot 可分别指定 provider/model', async () => {
   assert.equal((await send('/api/bot', 'PUT', { key: 'maige', model: 'local/not-in-list' })).status, 400);
   // 还原
   await send('/api/bot', 'PUT', { key: 'maige', model: null });
-  await fetch(`${BASE}/api/providers?id=local`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/providers?id=local`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('模型清单：按 provider 分组给出', async () => {
@@ -252,7 +280,29 @@ test('模型清单：按 provider 分组给出', async () => {
   assert.ok(m.models.includes('multi/m-a'));
   assert.ok(!m.models.includes('multi/qwen-image-3.0-pro'));
   assert.ok(m.default.includes('/'));
-  await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+});
+
+test('搜索源：列出引擎、配置/删除 API 搜索源、健康度可见', async () => {
+  // 列出：免费层兜底 + 两个 API 引擎未配置
+  let sp = await (await get('/api/search-providers')).json();
+  assert.ok(sp.free.some((e) => e.id === 'bing'));
+  assert.ok(sp.engines.some((e) => e.id === 'tavily' && e.configured === false));
+  // 配置 Tavily
+  assert.ok((await send('/api/search-providers', 'POST', { engine: 'tavily', apiKey: 'tv-key-1' })).ok);
+  sp = await (await get('/api/search-providers')).json();
+  assert.ok(sp.engines.find((e) => e.id === 'tavily').configured);
+  // key 不应回显
+  assert.ok(!JSON.stringify(sp).includes('tv-key-1'));
+  // 非法引擎拒收
+  assert.equal((await send('/api/search-providers', 'POST', { engine: 'ghost', apiKey: 'k' })).status, 400);
+  // 删除
+  assert.ok((await fetch(`${BASE}/api/search-providers?engine=tavily`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
+  sp = await (await get('/api/search-providers')).json();
+  assert.ok(!sp.engines.find((e) => e.id === 'tavily').configured);
+  // 诊断里能看到健康度
+  const diag = await (await get('/api/diagnostics')).json();
+  assert.ok(typeof diag.searchHealth === 'object');
 });
 
 test('预算：token 上限到点自动停止，并说明原因', async () => {
@@ -289,7 +339,7 @@ test('预算：token 上限到点自动停止，并说明原因', async () => {
     // 恢复不限
     await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
     await send('/api/bot', 'PUT', { key: 'maige', model: null });
-    await fetch(`${BASE}/api/providers?id=bmock`, { method: 'DELETE' });
+    await fetch(`${BASE}/api/providers?id=bmock`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
     mock.closeAllConnections?.(); // fetch 的 keep-alive 连接会让 close() 挂住
     mock.close();
   } finally { /* 失败时也尽量清理 */ }
@@ -329,10 +379,25 @@ test('预算：时长上限到点自动中止（长请求也能被掐断）', as
   } finally {
     await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
     await send('/api/bot', 'PUT', { key: 'maige', model: null });
-    await fetch(`${BASE}/api/providers?id=slowb`, { method: 'DELETE' });
+    await fetch(`${BASE}/api/providers?id=slowb`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
     slow.closeAllConnections?.();
     slow.close();
   }
+});
+
+test('ownerName：可配置老板称呼，写入并回显', async () => {
+  // 默认 Mike
+  let info = await (await get('/api/info')).json();
+  assert.equal(info.ownerName, 'Mike');
+  // 改成别的
+  const r = await send('/api/config', 'PUT', { ownerName: '阿猫' });
+  assert.ok(r.ok);
+  info = await (await get('/api/info')).json();
+  assert.equal(info.ownerName, '阿猫');
+  // 空值拒绝
+  assert.equal((await send('/api/config', 'PUT', { ownerName: '   ' })).status, 400);
+  // 还原
+  await send('/api/config', 'PUT', { ownerName: 'Mike' });
 });
 
 test('预算：配置读写与 /api/info 回显', async () => {
@@ -392,7 +457,7 @@ test('停止：能中断正在跑的回合，并干净收尾', async () => {
     assert.equal(idle.stopped, false);
   } finally {
     await send('/api/bot', 'PUT', { key: 'maige', model: null });
-    await fetch(`${BASE}/api/providers?id=slow`, { method: 'DELETE' });
+    await fetch(`${BASE}/api/providers?id=slow`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
     slow.closeAllConnections?.();
     slow.close();
   }

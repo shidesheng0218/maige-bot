@@ -143,6 +143,7 @@ MAIGE_COMPRESS_TRIGGER=6 node maige-bot/ops/test-compress.mjs  # 上下文压缩
 ## 边界
 
 - 文件访问经 realpath 白名单校验（fail-closed）；LLM/MiniMax 凭据只在 Node 进程，不进 Client/日志/错误响应
+- 面板 API 需访问令牌（`panel-token`，权限 600）：`/api/*` 要求 `Bearer` 头，面板页 `?token=` 入口，防本机任意进程直接调用
 - 敏感记忆两道门：硬门（密码/密钥/证件）永不记、永不注入
 - 状态诚实：没测过 ≠ 没问题；搜索失败如实说"没搜到"，不编造
 

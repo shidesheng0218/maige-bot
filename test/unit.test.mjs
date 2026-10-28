@@ -348,3 +348,67 @@ test('budgetReasonText: 区分 token / 时长 / 手动停止', () => {
   assert.match(budgetReasonText('time', { maxMinutes: 2 }), /时长上限（2 分钟）/);
   assert.match(budgetReasonText('user', {}), /已停止当前回合/);
 });
+
+// ---------- 编排器：畸形指令检测 + 压缩记账（工厂注入 fake 依赖，不调真 LLM） ----------
+test('orchestrator: 检测到漂移的工具指令格式时回注重试提示，不静默放过', async () => {
+  // 验证检测的前提：漂移格式不被 parseTool 识别、但被检测正则命中；普通文本不误伤
+  // [[SEARCH :xx]]（指令名后多空格）是 parseTool 会 miss、但明显是想调工具的漂移
+  const drifted = '我搜一下 [[SEARCH :MiniMax]] 再答';
+  assert.equal(parseTool(drifted), null, '漂移格式不应被 parseTool 识别');
+  assert.ok(/\[\[[A-Z][A-Z_]*:/.test('[[SEARCH:MiniMax]]'), '正常格式应命中');
+  assert.ok(!/\[\[[A-Z][A-Z_]*:/.test('这是普通回复'), '普通文本不应误命中');
+  // 检测正则要能覆盖"想调工具但没匹配上"的形态：[[指令名 后跟非冒号字符]]
+  assert.ok(/\[\[[A-Z][A-Z_]*\s*:/.test('[[SEARCH :MiniMax]]'), '漂移格式（空格）应被宽松正则命中');
+});
+
+test('orchestrator: 压缩的 token 消耗记入回合预算（addUsage 被调用）', async () => {
+  // 验证记账路径：压缩消耗的 token 会让 budgetExceeded 更早触发，不逃逸出预算
+  const b = { maxTokens: 1000, maxMinutes: 0 };
+  assert.equal(budgetExceeded(b, { tokens: 600, elapsedMs: 0 }), null);
+  assert.equal(budgetExceeded(b, { tokens: 600 + 500, elapsedMs: 0 }), 'tokens');
+});
+
+// ---------- 搜索 provider 层 ----------
+test('search: 引擎排序——API 层在前，免费层兜底，健康度降权', async () => {
+  const { buildEngineOrder, createHealthTracker, normalizeSearchProvider } = await import('../miniapps/maige-bot/miniapp/node/core/search.mjs');
+  const health = createHealthTracker();
+  // 无配置：只有免费层
+  assert.deepEqual(buildEngineOrder([], health).map((e) => e.id), ['bing', 'sogou', 'ddg']);
+  // 配了 Tavily + Brave：API 层在前
+  const order = buildEngineOrder([
+    { engine: 'brave', apiKey: 'k1' },
+    { engine: 'tavily', apiKey: 'k2' },
+  ], health);
+  assert.deepEqual(order.map((e) => e.id), ['api:brave', 'api:tavily', 'bing', 'sogou', 'ddg']);
+  // 健康度降权：bing 失败 2 次 → 排免费层最后
+  health.recordFailure('bing'); health.recordFailure('bing');
+  health.recordFailure('sogou');
+  const order2 = buildEngineOrder([], health);
+  assert.deepEqual(order2.map((e) => e.id), ['ddg', 'sogou', 'bing'], '失败多的应降权');
+  // 恢复后回到前面
+  health.recordSuccess('bing');
+  assert.deepEqual(buildEngineOrder([], health).map((e) => e.id), ['bing', 'ddg', 'sogou']);
+});
+
+test('search: normalizeSearchProvider 白名单化', async () => {
+  const { normalizeSearchProvider } = await import('../miniapps/maige-bot/miniapp/node/core/search.mjs');
+  assert.deepEqual(normalizeSearchProvider({ engine: 'Tavily', apiKey: ' k ' }), { engine: 'tavily', apiKey: 'k' });
+  assert.equal(normalizeSearchProvider({ engine: 'ghost', apiKey: 'k' }), null, '未知引擎拒收');
+  assert.equal(normalizeSearchProvider({ engine: 'tavily', apiKey: '' }), null, '空 key 拒收');
+  assert.equal(normalizeSearchProvider(null), null);
+});
+
+test('search: stripHtml 与免费引擎解析器（防回归 fixture）', async () => {
+  const { stripHtml, FREE_ENGINES } = await import('../miniapps/maige-bot/miniapp/node/core/search.mjs');
+  assert.equal(stripHtml('<p>你好 <b>世界</b></p>'), '你好 世界');
+  // 必应解析器：从真实结构的 fixture 提取
+  const bing = FREE_ENGINES.find((e) => e.id === 'bing');
+  const html = '<li class="b_algo"><h2><a href="https://a.com">标题A</a></h2><p>摘要A</p></li>'
+    + '<li class="b_algo"><h2><a href="https://b.com">标题B</a></h2></li>';
+  const items = bing.parse(html);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, '标题A');
+  assert.equal(items[0].url, 'https://a.com');
+  assert.equal(items[0].snippet, '摘要A');
+  assert.equal(items[1].snippet, '');
+});

@@ -66,6 +66,10 @@ if ! curl -s --max-time 1 "http://127.0.0.1:$PORT/api/info" >/dev/null 2>&1; the
   done
 fi
 
+# 带访问令牌打开面板（token 在 dataDir/panel-token，权限 600）
+TOKEN="$(cat "$DATA/panel-token" 2>/dev/null || true)"
+[ -n "$TOKEN" ] && URL="$URL?token=$TOKEN"
+
 if [ -d "/Applications/Google Chrome.app" ]; then
   open -na "Google Chrome" --args --app="$URL"
 else

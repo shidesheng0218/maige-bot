@@ -12,7 +12,7 @@ export function createOrchestrator(deps) {
   const {
     getConv, appendMessage, getMembers, buildChiefSystem, buildMemberSystem,
     withCapabilities, memoryBlock, resolveModelFor, defaultProvider, maxTokensFor, execTool, lastImageDataUrl,
-    persistChat, logError, notify, context,
+    persistChat, logError, notify, context, getOwnerName,
     TOOL_PROMPT, TOOL_ROUNDS, COMPRESS_TRIGGER, COMPRESS_KEEP, COMPRESS_EVERY,
     getBudget,
   } = deps;
@@ -152,7 +152,7 @@ export function createOrchestrator(deps) {
     const oldMsgs = conv.messages.slice(Math.max(coveredIdx + 1, 0), cutoff);
     if (!oldMsgs.length) return;
     const text = oldMsgs.map((m) => {
-      const who = m.kind === 'user' ? 'Mike' : m.kind === 'system' ? `【${m.name}】` : m.name;
+      const who = m.kind === 'user' ? ownerLabel() : m.kind === 'system' ? `【${m.name}】` : m.name;
       return `${who}: ${textOf(m)}`;
     }).filter((line) => !/: $/.test(line)).join('\n');
     const prev = conv.summary ? '已有纪要：\n' + conv.summary.text + '\n\n' : '';
@@ -160,6 +160,8 @@ export function createOrchestrator(deps) {
       const reply = await callLlm(provider,
         '你是对话压缩器。把对话历史压缩成纪要，保留：用户偏好与决定、关键事实、未完成的承诺、在做的事。口语化中文，不超过 200 字。',
         prev + '新增对话：\n' + text + '\n\n请输出合并后的完整纪要（不超过 200 字，直接给纪要本身）：');
+      // 压缩本身消耗的 token 也记入回合预算，避免长会话的"后台开销"逃逸出预算
+      addUsage(convId, reply.usage);
       conv.summary = { text: reply.text, upToId: conv.messages[cutoff - 1].id, at: new Date().toISOString() };
       await persistChat().catch(() => {});
       await appendMessage(convId, 'system', '系统', '前面的对话已压缩成纪要（消息都还在，模型读纪要+最近原文）。', 'system');
@@ -169,14 +171,24 @@ export function createOrchestrator(deps) {
     }
   }
 
+  /** 发言者显示名：user 消息用配置的 ownerName，否则回退 Mike */
+  function ownerLabel() {
+    return (typeof getOwnerName === 'function' && getOwnerName()) || 'Mike';
+  }
   function buildTranscript(conv, limit) {
     const recent = conv.messages.slice(-limit);
     const lines = recent.map((m) => {
-      const who = m.kind === 'user' ? 'Mike' : m.kind === 'system' ? '【' + m.name + '】' : m.name;
+      const who = m.kind === 'user' ? ownerLabel() : m.kind === 'system' ? '【' + m.name + '】' : m.name;
       return `${who}: ${textOf(m)}`;
     }).filter((line) => !/: $/.test(line)); // 丢掉纯空内容（如无正文的系统提示）
     const head = conv.summary ? '以下是更早对话的纪要（细节以此为准）：\n' + conv.summary.text + '\n\n' : '';
     return head + '以下是最近对话：\n\n' + lines.join('\n') + '\n\n现在轮到你发言（只说你要说的话，不要带名字前缀）：';
+  }
+
+  /** 检测回复里是否有"看起来像工具指令但没匹配上"的内容（格式漂移，防静默失败）。
+   *  宽松匹配 [[指令名 + 可选空格 + :]]，覆盖 [[SEARCH :x]] 这类 parseTool 会 miss 的形态。 */
+  function hasStrayToolIntent(text) {
+    return /\[\[[A-Z][A-Z_]*\s*:/.test(text);
   }
 
   /** 一位发言者发言：流式产出（draft 实时可见）+ 可用工具（最多 TOOL_ROUNDS 轮）；
@@ -219,6 +231,11 @@ export function createOrchestrator(deps) {
       const withinBudget = account(convId, reply.usage); // 记账并检查预算（token/时长）
       const tool = parseTool(reply.text);
       if (!tool) {
+        // 格式漂移：模型想调工具但写法没被解析到（如 [[WRITE: x]] 多了空格），别静默放过——回注提示让它重试
+        if (hasStrayToolIntent(reply.text)) {
+          await appendMessage(convId, 'system', '工具', '检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。', 'system');
+          continue; // 仍在 TOOL_ROUNDS 内，给它一次重试机会
+        }
         const clean = reply.text.replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
         if (clean) await appendMessage(convId, speaker.key, speaker.displayName, clean, 'agent', reply.usage);
         return reply.text;

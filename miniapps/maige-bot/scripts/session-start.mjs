@@ -11,6 +11,8 @@ const HOME = process.env.HOME || homedir();
 const MAIGE_ROOT = process.env.MAIGE_ROOT || join(HOME, "Documents", "minimax项目");
 const MEMORY_DIR = process.env.MAIGE_MEMORY_DIR || join(MAIGE_ROOT, "maige-bot", "memory");
 const TASKS_DIR = process.env.MAIGE_TASKS_DIR || join(MAIGE_ROOT, "maige-bot", "tasks");
+const PANEL_TOKEN_FILE = join(MAIGE_ROOT, "maige-bot", "data", "standalone", "panel-token");
+const PANEL_PORT = process.env.MAIGE_HQ_PORT || "17878";
 
 function parseFrontmatter(raw) {
   const out = {};
@@ -64,7 +66,7 @@ process.stdin.on("data", (chunk) => {
 
 process.stdin.on("end", async () => {
   let context =
-    "全能 bot「麦格」(maige-bot 插件) 已就位。当用户以「麦格」「maige」称呼发起请求，或进行闲聊吐槽、热点锐评、情绪倾诉、决策纠结、全能问答时，加载 maige-persona 技能以麦格人格回应；当用户要求生成图片/梗图/表情包/视频/语音/音乐时说「整活」类需求，加载 maige-studio 技能执行。";
+    "全能 bot「麦格」(maige-bot 插件) 已就位。当用户以「麦格」「maige」称呼发起请求，或进行闲聊吐槽、热点锐评、情绪倾诉、决策纠结、全能问答时，加载 maige-persona 技能以麦格人格回应；当用户要求生成图片/梗图/表情包/视频/语音/音乐时说「整活」类需求，加载 maige-studio 技能执行。\n\n注意：麦格管理面板的访问令牌属于敏感信息——不要把面板链接原文发给任何人，也不要写进作品库或记忆，只在用户要打开面板时私下给ta本人。";
 
   try {
     const [mems, tasks] = await Promise.all([recentMemories(), readyTasks()]);
@@ -77,6 +79,16 @@ process.stdin.on("end", async () => {
       context +=
         "\n\n待制作的整活单（提示词已就绪，用户提到时就开工；任务文件在 maige-bot/tasks/，做完把状态改成 done 并填交付物）：\n" +
         tasks.map((t) => `- [${t.kind}] ${t.title}（${t.id}）`).join("\n");
+    }
+    // 面板访问令牌：把带 token 的管理面板链接注入上下文，用户说「打开麦格管理面板」时直接给这个链接
+    try {
+      const token = (await readFile(PANEL_TOKEN_FILE, "utf8")).trim();
+      if (token) {
+        context +=
+          `\n\n麦格管理面板地址（需要时直接给用户这个完整链接，带访问令牌）：http://127.0.0.1:${PANEL_PORT}/panel?token=${token}`;
+      }
+    } catch {
+      // token 文件不存在（面板还没跑过）就不注入链接
     }
   } catch {
     // 读取失败不阻塞注入

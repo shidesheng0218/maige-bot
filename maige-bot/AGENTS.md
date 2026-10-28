@@ -29,6 +29,12 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   不进 Client/日志/错误响应；`config.json` 写盘权限 600
 - **CSRF**：浏览器带 `Origin` 的写请求必须带 `x-maige-csrf: 1`（客户端 `api()` 自动加）；
   带 body 的写请求必须是 `application/json`。跨站简单请求因此无法触发任意动作
+- **访问令牌**：启动时生成 `panel-token`（dataDir，权限 600），所有 `/api/*` 要求
+  `authorization: Bearer <token>`（面板页 `?token=` 入口，前端握手后存 sessionStorage 自动带头）。
+  媒体资源（`/api/avatar`、`/api/outputs/file`、`/api/chat/image`）对 GET 放行以兼容 `<img>` 直引；
+  测试用 `MAIGE_PANEL_TOKEN` 固定；standalone 启动把带 token 的完整 URL 打到 stdout
+- **老板称呼**：`config.ownerName`（默认 "Mike"），`buildChiefSystem`/`buildMemberSystem`/`appendMessage`/
+  `notify`/导出/transcript 全链路读 `getOwnerName()`；设置页可改，`PUT /api/config {ownerName}`
 - **视觉基线**：`--mcode-*` CSS 变量 + `prefers-color-scheme`；禁 emoji、禁远程资源；
   交互元素带 aria-label/可见文本
 - **群聊引擎**：模型走**自带模型**层（`core/host.mjs` + `config.providers`）：用户配置的 provider 优先，
@@ -47,18 +53,23 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   `runTurn` 有"本轮无产出即退出"的保护，避免预算为 0 时空转
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
   会话里发「记住：…」确定性落盘
-- **搜索**：多源降级（必应 → 搜狗 → DuckDuckGo，各 7s 超时），只保留 http(s) 链接；失败要诚实
+- **搜索**：可插拔两层架构（`core/search.mjs` 纯逻辑）：免费层（必应/搜狗/DuckDuckGo）兜底 +
+  API 层（Tavily/Brave，设置页配 key 启用）；`createHealthTracker` 记连续失败、失败多的自动降权；
+  健康度快照进 `/api/diagnostics`；解析器有防回归 fixture 单测。失败要诚实
+- **客户端**：`client/index.html`（壳）+ `client/static/css/app.css` + `client/static/js/app.js`（ES module）。
+  服务端 `/static/` 路由用 `resolveWorkspace` 白名单限定在 client 目录，只放行 `.js/.css/.svg`
 - **安装向导**：检测不到模型服务且首次打开 → 弹引导配模型；跳过/保存都记 localStorage 不再打扰
 - **数据导出**：设置页「数据」一键导出 zip（记忆/任务/作品/配置），落作品库
 - **快捷口令**：聊天输入框打 `/` 出候选（上下键/Enter/Esc）；口令卡片同步
 - **移动端**：640px 以下会话列表收抽屉、聊天全宽
 - **压缩**：会话超阈值把旧消息压成纪要（env MAIGE_COMPRESS_* 可调）；`media`/`card` 消息用占位描述，
-  不把空行喂给模型
+  不把空行喂给模型；**压缩消耗的 token 经 `addUsage` 记入回合预算**（不逃逸）
 - **工具层**：bot 回复里的 `[[SEARCH]]/[[READ]]/[[LS]]/[[WRITE]]/[[TASK]]/[[HIRE]]/[[CONFIG]]/[[GENERATE_IMAGE]]/[[SPEAK]]/[[GENERATE_VIDEO]]/[[DELIVER]]/[[REMEMBER]]`
   由 `core/tools.mjs` 解析执行；读/列限定工作区，写只进作品库；不给 shell；
   `[[CONFIG:key:model:值]]` 的值格式是 `provider/model`（裸模型 id 落到默认 provider）；
   `[[DELIVER:任务id:文件名]]` 把成品挂回整活单并标记 done（交付契约闭环）；
-  `[[REMEMBER:正文]]` 主动记忆（bot 发现值得记的事自动落盘）
+  `[[REMEMBER:正文]]` 主动记忆（bot 发现值得记的事自动落盘）；
+  格式漂移检测：`parseTool` miss 但命中 `/\[\[[A-Z][A-Z_]*\s*:/` 时回注重试提示（防静默失败）
 - **自带模型**：provider 存 `config.providers`（id/name/baseURL/apiKey/models/defaultModel/thinking），
   增删改走 `GET/POST/PUT/DELETE /api/providers`；key 不回显（只回 `hasKey`）；`mcode`/`env` 为保留 id
 - **输出可见**：搜索结果/作品/整活单用 `card` 消息（结构化数据，文案由客户端 i18n 渲染），

@@ -1,5 +1,37 @@
 # 迭代记录
 
+## 2026-10-28 面板 v0.30.0：可插拔搜索 + 客户端模块化拆分
+- 承接 v0.29.0 的复盘，把剩余两个 P2 项落地，仍沿用既有模式（core 纯逻辑 + 单测、白名单化配置、零依赖）
+- **① 可插拔搜索 provider（健壮性）**：搜索从"写死三个免费源"升级为可插拔两层架构——
+  新增 `core/search.mjs`（纯逻辑：引擎定义 / `normalizeSearchProvider` 白名单化 / `createHealthTracker`
+  连续失败追踪 / `buildEngineOrder` 健康度降权排序）。免费层（必应/搜狗/DuckDuckGo）保留为兜底；
+  API 层（Tavily / Brave）在设置页填 key 即启用。失败多的源自动降权，健康度快照进 `/api/diagnostics`；
+  三个免费引擎的解析器各配了防回归 fixture 进单测。新端点 `GET/POST/DELETE /api/search-providers`，
+  设置页加「联网搜索」管理区（key 不回显，只报已配置）
+- **② 客户端拆分（可维护性）**：3,617 行单文件拆为 `index.html`（549 行壳）+ `static/css/app.css`（545 行）+
+  `static/js/app.js`（2,633 行，原 IIFE 去掉包装即成 ES module）。服务端新增 `/static/` 路由
+  （`resolveWorkspace` realpath 白名单限定在 client 目录，只放行 `.js/.css/.svg`），零依赖、无构建步骤
+- 验证：单测+API 56 项全过（新增搜索 provider 排序/白名单化/解析器 fixture、搜索源 CRUD/健康度 5 项）；
+  standalone 冒烟（静态资源 200 + 正确 MIME、路径穿越 404、非白名单扩展名 404、JS 模块语法校验）通过
+
+## 2026-10-28 面板 v0.29.0：安全与健壮性收口——面板令牌 / 压缩记账 / 畸形指令检测 / 老板称呼可配
+- 针对深度复盘中识别的不足与风险做收口，全部沿用项目既有模式（白名单化配置、core 纯逻辑 + 单测、文件即真相）
+- **① 面板访问令牌（安全 P0）**：启动时生成 `panel-token` 写入 dataDir（权限 600），所有 `/api/*` 要求
+  `authorization: Bearer <token>`（面板页 URL 带 `?token=` 入口，前端握手后存 sessionStorage 自动带头）。
+  堵住"本机任意进程 curl 打 API"的口子。媒体资源（头像/作品图/聊天图）对 GET 放行以兼容 `<img>` 直引；
+  standalone 启动把带 token 的完整 URL 打到 stdout；MCode 宿主由 SessionStart hook 注入面板链接；
+  `麦格.app` 启动器读 token 文件拼 URL。测试用 `MAIGE_PANEL_TOKEN` 固定。
+- **② 压缩记账（预算黑洞）**：`maybeCompress` 的 `callLlm` 返回 usage 后调 `addUsage` 记入回合预算，
+  长会话的"后台压缩开销"不再逃逸出 token 预算
+- **③ 畸形指令检测（格式漂移防静默失败）**：`speakWithTools` 在 `parseTool` 返回 null 但检测到
+  `/\[\[[A-Z][A-Z_]*\s*:/` 时回注系统消息提示格式，给模型一次重试机会（仍在 TOOL_ROUNDS 内），
+  避免"模型想调工具但写错格式被当成普通回复"的静默失败
+- **④ 老板称呼可配（去硬编码 Mike）**：`config.ownerName`（默认 "Mike"），`buildChiefSystem`/
+  `buildMemberSystem`/`appendMessage`/`notify`/导出/transcript 全链路读配置；设置页加输入框；
+  `PUT /api/config {ownerName}` + `GET /api/info` 回显
+- 验证：单测+API 52 项全过（新增访问令牌 401/放行/握手/媒体豁免、ownerName 读写、
+  畸形指令检测正则、压缩记账路径 4 项）；standalone 端到端冒烟（token URL/600 权限/401/握手）通过
+
 ## 2026-10-22 面板 v0.28.0：全部深化——主动记忆 / 安装向导 / 数据导出 / 口令补全 / 移动端
 - 用户：「全都完成吧」——把剩余方向全落地
 - **② 主动记忆**：新工具 `[[REMEMBER:正文]]`——bot 发现值得记的事（称呼/偏好/进行中的事/未完成的承诺）
