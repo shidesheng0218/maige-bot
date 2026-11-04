@@ -43,7 +43,7 @@ export function createToolExecutor(deps) {
         if (!found) return { note: `${speakerName} 搜索「${tool.arg}」失败（几个搜索源都没通）` };
         const { engine, items: results } = found;
         // 搜索结果贴成卡片直接可见（不止转述），链接可点
-        await appendMessage(convId, 'system', '搜索', '', 'card', undefined, {
+        await appendMessage(convId, 'system', '搜索', '', 'card', undefined, undefined, {
           type: 'search', query: tool.arg,
           items: results.map((r) => ({ title: r.title, snippet: r.snippet, url: r.url })),
         });
@@ -84,7 +84,7 @@ export function createToolExecutor(deps) {
         context.logger.info('maige-bot.tool.write');
         // 作品内容贴成卡片直接可见（截断预览，全文在作品库）
         const preview = tool.content.length > 2000 ? tool.content.slice(0, 2000) + '\n…（全文在作品库）' : tool.content;
-        await appendMessage(convId, 'system', '作品', '', 'card', undefined, {
+        await appendMessage(convId, 'system', '作品', '', 'card', undefined, undefined, {
           type: 'work', name: fname, body: preview, size: `${(tool.content.length / 1024).toFixed(1)} KB`,
         });
         return { note: `${speakerName} 写了作品「${fname}」（${(tool.content.length / 1024).toFixed(1)} KB），已贴在上面、也进了作品库` };
@@ -95,10 +95,18 @@ export function createToolExecutor(deps) {
         const kind = TASK_KINDS.includes(tool.kind) ? tool.kind : 'text';
         const autoReady = AUTO_READY_KINDS.includes(kind); // 非敏感类型直通 ready，Mike 在看板上仍可退回/取消
         const id = `t-${Date.now().toString(36)}`;
-        // 攻坚分工：正文里点了谁的名字，单子就挂到谁头上（交付责任到人）
+        // 攻坚分工：正文里最先被点名的人拿单（不是成员列表里第一个出现的名字——
+        // 正文常写「@Quill 写文案，@Frame 做视频」，按列表序会错误地全挂给 Frame）
         const members = await getMembers();
-        const mentioned = members.find((m) => m.key !== 'maige'
-          && (tool.content.includes(m.displayName) || tool.content.includes('@' + m.key)));
+        let mentioned = null;
+        let bestAt = Infinity;
+        for (const m of members) {
+          if (m.key === 'maige') continue;
+          for (const needle of ['@' + m.key, m.displayName]) {
+            const at = tool.content.indexOf(needle);
+            if (at >= 0 && at < bestAt) { bestAt = at; mentioned = m; }
+          }
+        }
         await writeTask({
           id, title: tool.arg.slice(0, 80), kind, status: autoReady ? 'ready' : 'draft',
           created: new Date().toISOString(), updated: '', createdBy: speakerName, conv: convId,
@@ -108,16 +116,19 @@ export function createToolExecutor(deps) {
         context.logger.info('maige-bot.task.created');
         // 整活单贴成卡片直接可见（结构由服务端给，文案由客户端按语言渲染）
         const taskPreview = tool.content.length > 600 ? tool.content.slice(0, 600) + '\n…' : tool.content;
-        await appendMessage(convId, 'system', '整活单', '', 'card', undefined, {
+        await appendMessage(convId, 'system', '整活单', '', 'card', undefined, undefined, {
           type: 'task', title: tool.arg.slice(0, 60), kind, status: autoReady ? 'ready' : 'draft',
           body: taskPreview,
         });
+        // 一条回复里塞了多张单：只执行第一张，明确告知未执行的张数（不静默吞掉）
+        const nested = (tool.content.match(/\[\[\s*TASK\s*[:：]/g) || []).length;
+        const nestedNote = nested ? `；内容里还有 ${nested} 张单未执行，请分条再开` : '';
         if (autoReady) {
           notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」（${kind}），已就绪可直接制作`);
-          return { note: `${speakerName} 开了整活单「${tool.arg}」（${kind}，已就绪免确认），已贴在上面，点开始即制作` };
+          return { note: `${speakerName} 开了整活单「${tool.arg}」（${kind}，已就绪免确认），已贴在上面，点开始即制作${nestedNote}` };
         }
         notify('麦格 · 新整活单', `${speakerName} 开了「${tool.arg.slice(0, 40)}」，等你确认提示词`);
-        return { note: `${speakerName} 开了整活单「${tool.arg}」（待确认），已贴在上面` };
+        return { note: `${speakerName} 开了整活单「${tool.arg}」（待确认），已贴在上面${nestedNote}` };
       }
       if (tool.name === 'deliver') {
         // 把成品挂回整活单：内容落作品库 + 单子标记交付（交付契约闭环）
@@ -138,7 +149,7 @@ export function createToolExecutor(deps) {
         await writeTask(task);
         context.logger.info('maige-bot.task.delivered');
         // 交付回执：卡片 + 回写到来源会话
-        await appendMessage(convId, 'system', '交付', '', 'card', undefined, {
+        await appendMessage(convId, 'system', '交付', '', 'card', undefined, undefined, {
           type: 'work', name: fname, body: `整活单「${task.title}」已交付`,
           size: `${(tool.content.length / 1024).toFixed(1)} KB`,
         });
@@ -160,8 +171,9 @@ export function createToolExecutor(deps) {
         if (!deps.writeMemoryNote) return { note: `${speakerName} 想记东西，但记忆写入没接上` };
         const body = String(tool.arg || '').trim().slice(0, 2000);
         if (!body) return { note: `${speakerName} 想记东西，但内容是空的` };
-        const id = await deps.writeMemoryNote(body, 'maige');
-        if (!id) return { note: `${speakerName} 想记东西，但记忆目录不可用` };
+        const r = await deps.writeMemoryNote(body, 'maige');
+        if (r?.blocked) return { note: `${speakerName} 想记的东西涉及密码/密钥/证件号（硬门），没记——也不该记` };
+        if (!r?.id) return { note: `${speakerName} 想记东西，但记忆目录不可用` };
         await appendMessage(convId, 'system', '记忆', `记住了：${body.slice(0, 80)}${body.length > 80 ? '…' : ''}`, 'system');
         return { note: `${speakerName} 记下了这件事（之后对话里会带上）` };
       }
@@ -212,9 +224,12 @@ export function createToolExecutor(deps) {
           return { note: `${speakerName} 生成了图「${fname}」，已贴在上面、也进了作品库` };
         }
         const r = await minimax.synthesizeSpeech(apiKey, tool.arg);
-        if (!r.audioHex) return { note: `${speakerName} 语音生成走了异步，暂不支持，先这样吧` };
+        let audioBuf = null;
+        if (r.audioHex) audioBuf = Buffer.from(r.audioHex, 'hex');
+        else if (r.audioUrl) audioBuf = Buffer.from(await (await fetch(r.audioUrl)).arrayBuffer());
+        if (!audioBuf) return { note: `${speakerName} 语音生成没拿到音频，先这样吧` };
         const fname = `tts-${Date.now().toString(36)}.mp3`;
-        await writeFile(join(dir, fname), Buffer.from(r.audioHex, 'hex'));
+        await writeFile(join(dir, fname), audioBuf);
         context.logger.info('maige-bot.tool.speak');
         const mediaUrl = `/api/outputs/file?name=${encodeURIComponent(fname)}`;
         await appendMessage(convId, 'system', '生成', '', 'media', undefined, { kind: 'audio', url: mediaUrl, name: fname });

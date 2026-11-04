@@ -24,6 +24,26 @@ export async function resolveInside(dir, name) {
   return target;
 }
 
+/** 作品库文件名：允许中文/空格等任意 Unicode，但仍是单层文件名。
+ *  ID_PATTERN 只用于 id 类（记忆/任务/图片），不能拿来卡作品名——否则「晨报.md」写得出、点不开。 */
+export function isSafeFileName(name) {
+  return typeof name === 'string'
+    && name.length > 0 && name.length <= 255
+    && name !== '.' && name !== '..'
+    && !name.includes('..')
+    && !/[/\\\0]/.test(name);
+}
+
+/** 将用户提交的作品文件名限定在授权目录内（支持 Unicode，fail-closed） */
+export async function resolveFileInside(dir, name) {
+  if (!isSafeFileName(name)) return null;
+  const real = await realpath(dir).catch(() => null);
+  if (!real) return null;
+  const target = await realpath(join(real, name)).catch(() => null);
+  if (!target || !target.startsWith(real + '/')) return null;
+  return target;
+}
+
 /** 列目录内文件并附带 stat 信息；目录不存在时返回 dirExists:false */
 export async function listDir(dir) {
   try {

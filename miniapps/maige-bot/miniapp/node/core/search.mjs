@@ -115,6 +115,43 @@ export function createHealthTracker() {
   };
 }
 
+/** 查询词项：拉丁词（≥3 字母，去常见停用词/复数）+ CJK 双字组 */
+export function queryTerms(query) {
+  const s = String(query || '');
+  const terms = new Set();
+  const STOP = new Set([
+    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were', 'has', 'have', 'had',
+    'not', 'but', 'you', 'your', 'our', 'their', 'its', 'about', 'into', 'over', 'under', 'after',
+    'before', 'launch', 'launched', 'latest', 'news', '2023', '2024', '2025', '2026', '2027',
+  ]);
+  for (const w of s.toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || []) {
+    if (STOP.has(w)) continue;
+    const n = w.replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+    if (n.length >= 3) terms.add(n);
+  }
+  const plain = s.replace(/\s+/g, '');
+  for (let i = 0; i < plain.length - 1; i++) {
+    const g = plain.slice(i, i + 2);
+    if (/[一-鿿]{2}/.test(g)) terms.add(g);
+  }
+  return terms;
+}
+
+/** 搜索结果相关性兜底：必应有时把英文查询拆成词典释义（Product→product_百度百科），
+ *  这类"有结果但完全跑题"不能当成搜到了。命中 ≥2 个查询词项才算相关；查询太短时放宽。 */
+export function isRelevant(query, items) {
+  const terms = queryTerms(query);
+  if (!terms.size) return true; // 无法判定时不误杀
+  let best = 0;
+  for (const it of Array.isArray(items) ? items : []) {
+    const hay = `${it?.title || ''} ${it?.snippet || ''}`.toLowerCase();
+    let n = 0;
+    for (const t of terms) if (hay.includes(t)) n++;
+    if (n > best) best = n;
+  }
+  return best >= Math.min(2, terms.size);
+}
+
 /** 组装有序搜索源列表：API 层（有 key 的）在前按健康度排序，免费层在后按健康度排序 */
 export function buildEngineOrder(searchProviders, health) {
   const api = [];

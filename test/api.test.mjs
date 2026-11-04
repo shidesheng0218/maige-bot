@@ -23,6 +23,8 @@ delete process.env.MAIGE_LLM_BASE_URL;
 delete process.env.MAIGE_LLM_API_KEY;
 
 for (const d of ['memory', 'outputs', 'tasks', 'agents', 'icons']) mkdirSync(join(TMP, d), { recursive: true });
+mkdirSync(join(TMP, 'root', 'maige-bot', 'capabilities'), { recursive: true });
+writeFileSync(join(TMP, 'root', 'maige-bot', 'capabilities', 'snarky.md'), '---\nname: 毒舌模式\ndescription: 测试用能力包\n---\n\n说话更损一点。\n');
 cpSync(join(REPO, 'maige-bot', 'seed', 'agents'), join(TMP, 'agents'), { recursive: true });
 writeFileSync(join(TMP, 'memory', 'user-name.md'), '---\nname: 名字\ndescription: 用户叫 Mike\nsource: user\ndate: 2026-01-01\nsensitive: false\n---\n\nMike。\n');
 writeFileSync(join(TMP, 'memory', 'secret.md'), '---\nname: 敏感\ndescription: 证件号\nsource: user\ndate: 2026-01-01\nsensitive: true\n---\n\n敏感内容\n');
@@ -49,6 +51,15 @@ const get = (p) => fetch(BASE + p, { headers: { authorization: 'Bearer test-toke
 const send = (p, method, body, extra = {}) => fetch(BASE + p, {
   method, headers: { ...jsonHeaders, ...extra }, body: body === undefined ? undefined : JSON.stringify(body),
 });
+/** 等当前会话回合结束（避免测试间互相踩 running 状态） */
+async function waitIdle(conv) {
+  for (let i = 0; i < 60; i++) {
+    const d = await (await get('/api/chat/messages?conv=' + conv)).json();
+    if (!d.running) return d;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return null;
+}
 
 test('面板页可访问', async () => {
   const r = await get('/panel');
@@ -104,6 +115,20 @@ test('记忆 CRUD 与路径穿越防护', async () => {
   assert.equal((await fetch(`${BASE}/api/memories?id=..%2F..%2Fetc%2Fpasswd`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).status, 400);
 });
 
+test('记忆硬门：密码/密钥/证件走 API 也拒收', async () => {
+  const r = await send('/api/memories', 'POST', { name: '服务器密码', body: '我的服务器密码是 hunter2', source: 'user' });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'sensitive_blocked');
+  // 编辑路径同样拦截
+  const ok = await send('/api/memories', 'POST', { name: '咖啡', body: '不加糖', source: 'user' });
+  assert.ok(ok.ok);
+  const id = (await ok.json()).id;
+  const edit = await send(`/api/memories?id=${id}`, 'PUT', { name: '咖啡', body: 'token: sk-abcdefgh12345678', source: 'user' });
+  assert.equal(edit.status, 400);
+  assert.equal((await edit.json()).error, 'sensitive_blocked');
+  await fetch(`${BASE}/api/memories?id=${id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+});
+
 test('整活单状态机', async () => {
   const t = await (await send('/api/tasks', 'POST', { title: '测试单', kind: 'image', body: '需求' })).json();
   assert.ok(t.ok);
@@ -113,6 +138,17 @@ test('整活单状态机', async () => {
   assert.ok((await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'done', deliverables: ['a.png'] })).ok);
   assert.equal((await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'ready' })).status, 409); // done 终态
   assert.ok((await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } })).ok);
+});
+
+test('整活单：中文交付物不被过滤', async () => {
+  const t = await (await send('/api/tasks', 'POST', { title: '中文交付', kind: 'text', body: '需求' })).json();
+  assert.ok(t.ok);
+  await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'ready' });
+  await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'making' });
+  await send(`/api/tasks?id=${t.id}`, 'PUT', { status: 'done', deliverables: ['晨报.md', 'poster.png'] });
+  const item = (await (await get('/api/tasks')).json()).items.find((x) => x.id === t.id);
+  assert.deepEqual(item.deliverables, ['晨报.md', 'poster.png']);
+  await fetch(`${BASE}/api/tasks?id=${t.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('定时任务支持产出目标（goal）', async () => {
@@ -125,6 +161,79 @@ test('定时任务支持产出目标（goal）', async () => {
   const item = list.items.find((x) => x.id === s.id);
   assert.equal(item.goal, '写成 .md 进作品库');
   await fetch(`${BASE}/api/schedules?id=${s.id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+});
+
+test('定时任务：执行方式与本次能力包（白名单）', async () => {
+  const s = await (await send('/api/schedules', 'POST', {
+    name: '每日攻坚', text: '规划内容排期', memberKey: 'maige',
+    freqType: 'daily', time: '09:00', mode: 'sprint',
+    capabilities: ['snarky', 'ghost-pack'],
+  })).json();
+  assert.ok(s.ok);
+  const list = await (await get('/api/schedules')).json();
+  const item = list.items.find((x) => x.id === s.id);
+  assert.equal(item.mode, 'sprint');
+  assert.deepEqual(item.capabilities, ['snarky'], '不存在的能力包应被过滤');
+  // 非法 mode 回落 normal
+  const s2 = await (await send('/api/schedules', 'POST', {
+    name: 'x', text: 'y', mode: 'bogus',
+  })).json();
+  const item2 = (await (await get('/api/schedules')).json()).items.find((x) => x.id === s2.id);
+  assert.equal(item2.mode, 'normal');
+  for (const id of [s.id, s2.id]) {
+    await fetch(`${BASE}/api/schedules?id=${id}`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+  }
+});
+
+test('外部事件入口：鉴权、校验、幂等与消息落库', async () => {
+  // 无 token → 401
+  const noTok = await fetch(BASE + '/api/event', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-maige-csrf': '1' },
+    body: JSON.stringify({ text: 'hi' }),
+  });
+  assert.equal(noTok.status, 401);
+  // 无正文 → 400
+  assert.equal((await send('/api/event', 'POST', { text: '' })).status, 400);
+  // 没有模型时 → 503（诚实失败）
+  assert.equal((await send('/api/event', 'POST', { text: 'CI 失败' })).status, 503);
+  // 起 mock 模型后 → 200，消息落库
+  const { createServer } = await import('node:http');
+  const mock = createServer((req, res) => {
+    let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '收到事件' } }], usage: { total_tokens: 10 } }));
+    });
+  });
+  await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+  try {
+    await send('/api/providers', 'POST', {
+      id: 'evmock', name: '事件 mock', baseURL: `http://127.0.0.1:${mock.address().port}/v1`,
+      apiKey: 'k', models: ['m'], defaultModel: 'm',
+    });
+    await send('/api/chat/clear', 'POST', { conv: 'chief' });
+    const r1 = await (await send('/api/event', 'POST', {
+      conv: 'chief', source: 'GitHub', id: 'evt-1', text: '有人提了个 PR',
+    })).json();
+    assert.equal(r1.ok, true);
+    // 幂等：同 id 再来一次 → duplicate，不重复落消息
+    const r2 = await (await send('/api/event', 'POST', {
+      conv: 'chief', source: 'GitHub', id: 'evt-1', text: '有人提了个 PR',
+    })).json();
+    assert.equal(r2.duplicate, true);
+    const msgs = (await (await get('/api/chat/messages?conv=chief')).json()).messages;
+    assert.equal(msgs.filter((m) => m.name === 'GitHub').length, 1, '同一事件只应落一条用户消息');
+    assert.ok(msgs.some((m) => m.kind === 'system' && m.text.includes('外部事件')), '应有外部事件系统提示');
+    // 等本轮跑完，别把 running 状态漏给后续用例
+    for (let i = 0; i < 30; i++) {
+      const d = await (await get('/api/chat/messages?conv=chief')).json();
+      if (!d.running) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  } finally {
+    await fetch(`${BASE}/api/providers?id=evmock`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc', 'x-maige-csrf': '1' } });
+    mock.closeAllConnections?.();
+    mock.close();
+  }
 });
 
 test('交付契约：整活单挂 assignee，DELIVER 交付后进作品库', async () => {
@@ -153,6 +262,15 @@ test('作品库与服务端点', async () => {
   assert.equal((await get('/api/outputs/file?name=..%2Fconfig.json')).status, 404);
 });
 
+test('作品文件：中文文件名可预览，穿越仍被拦', async () => {
+  writeFileSync(join(TMP, 'outputs', '晨报.md'), '# 今日晨报');
+  const r = await get('/api/outputs/file?name=' + encodeURIComponent('晨报.md'));
+  assert.equal(r.status, 200, '中文文件名应可读取');
+  assert.match(await r.text(), /今日晨报/);
+  assert.equal((await get('/api/outputs/file?name=' + encodeURIComponent('../memory/user-name.md'))).status, 404);
+  assert.equal((await get('/api/outputs/file?name=' + encodeURIComponent('不存在.md'))).status, 404);
+});
+
 test('头像：素材优先，否则生成 SVG', async () => {
   writeFileSync(join(TMP, 'icons', 'maige.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const img = await get('/api/avatar?key=maige');
@@ -172,6 +290,10 @@ test('团队扫描与招聘/移除（fixture agents）', async () => {
     assert.ok(keys.includes(k), `missing ${k}`);
   }
   assert.ok(!keys.includes('worker'));
+  // 种子成员（install.sh 直接铺文件，不走 hireBot）也应按职责自动分档，而不是全员 600
+  const quill = await (await get('/api/bot?key=moke-writer')).json();
+  assert.equal(quill.maxTokens, 200000);
+  assert.equal(quill.maxTokensOverride, null);
   const hire = await send('/api/team', 'POST', { key: 'test-bot-api', display: 'TestBot', role: '测试：回归专用', persona: '你是 TestBot。' });
   assert.ok(hire.ok);
   assert.equal((await send('/api/team', 'POST', { key: 'test-bot-api', display: 'X', role: 'x' })).status, 409);
@@ -281,6 +403,39 @@ test('模型清单：按 provider 分组给出', async () => {
   assert.ok(!m.models.includes('multi/qwen-image-3.0-pro'));
   assert.ok(m.default.includes('/'));
   await fetch(`${BASE}/api/providers?id=multi`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+});
+
+test('配置回显：provider / 搜索源 key 都不进响应体', async () => {
+  assert.ok((await send('/api/providers', 'POST', {
+    id: 'leak', name: 'Leak', baseURL: 'https://leak.example/v1', apiKey: 'sk-LEAK-SECRET', models: ['m'],
+  })).ok);
+  assert.ok((await send('/api/search-providers', 'POST', { engine: 'tavily', apiKey: 'tv-LEAK-SECRET' })).ok);
+  const r = await send('/api/config', 'PUT', { ownerName: 'Mike' });
+  const text = await r.text();
+  assert.ok(!text.includes('sk-LEAK-SECRET'), 'provider key 不应回显');
+  assert.ok(!text.includes('tv-LEAK-SECRET'), '搜索源 key 不应回显');
+  const body = JSON.parse(text);
+  assert.equal(body.providers.find((p) => p.id === 'leak').hasKey, true);
+  assert.equal(body.searchProviders.find((p) => p.engine === 'tavily').hasKey, true);
+  await fetch(`${BASE}/api/providers?id=leak`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+  await fetch(`${BASE}/api/search-providers?engine=tavily`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+});
+
+test('模型就绪：空 key 的 provider 不算可用，默认服务跳过它', async () => {
+  assert.ok((await send('/api/providers', 'POST', {
+    id: 'nokey', name: 'NoKey', baseURL: 'https://nokey.example/v1', apiKey: '', models: ['m'],
+  })).ok);
+  let diag = await (await get('/api/diagnostics')).json();
+  assert.equal(diag.llmReady, false, '空 key 不应算就绪');
+  assert.ok((await send('/api/providers', 'POST', {
+    id: 'withkey', name: 'WithKey', baseURL: 'https://withkey.example/v1', apiKey: 'k', models: ['m'],
+  })).ok);
+  diag = await (await get('/api/diagnostics')).json();
+  assert.equal(diag.llmReady, true);
+  const models = await (await get('/api/models')).json();
+  assert.equal(models.defaultProvider, 'withkey', '默认 provider 应跳过空 key 的服务');
+  await fetch(`${BASE}/api/providers?id=nokey`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+  await fetch(`${BASE}/api/providers?id=withkey`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
 });
 
 test('搜索源：列出引擎、配置/删除 API 搜索源、健康度可见', async () => {
@@ -407,6 +562,44 @@ test('预算：配置读写与 /api/info 回显', async () => {
   const diag = await (await get('/api/diagnostics')).json();
   assert.deepEqual(diag.budget, { maxTokens: 12345, maxMinutes: 1.5 });
   await send('/api/config', 'PUT', { budget: { maxTokens: 0, maxMinutes: 0 } });
+});
+
+test('附图与主动记忆：300KB 图片可上传，密码硬门拒绝落盘', async () => {
+  const { createServer } = await import('node:http');
+  const mock = createServer((req, res) => {
+    let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '收到' } }], usage: { total_tokens: 5 } }));
+    });
+  });
+  await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+  try {
+    await send('/api/providers', 'POST', {
+      id: 'imgmock', name: '图片 mock', baseURL: `http://127.0.0.1:${mock.address().port}/v1`,
+      apiKey: 'k', models: ['m'], defaultModel: 'm',
+    });
+    await send('/api/chat/clear', 'POST', { conv: 'chief' });
+    const b64 = Buffer.alloc(300 * 1024, 1).toString('base64');
+    const r = await send('/api/chat/send', 'POST', {
+      conv: 'chief', text: '看图', image: 'data:image/png;base64,' + b64,
+    });
+    assert.equal(r.status, 200, '300KB 图片不应被 256KB body 上限误伤');
+    const d = await waitIdle('chief');
+    assert.ok(d && d.messages.some((m) => m.kind === 'user' && m.image), '图片应落盘并以引用形式入消息');
+    // 「记住：密码」硬门：不落盘，并给用户明确回执
+    const gate = await send('/api/chat/send', 'POST', { conv: 'chief', text: '记住：我的服务器密码是 hunter2' });
+    assert.equal(gate.status, 200);
+    const d2 = await waitIdle('chief');
+    assert.ok(d2 && d2.messages.some((m) => m.kind === 'system' && m.text.includes('这条不记')), '应明确拒绝敏感记忆');
+    const mems = await (await get('/api/memories')).json();
+    assert.ok(!JSON.stringify(mems).includes('hunter2'), '密码不应落盘');
+  } finally {
+    await send('/api/bot', 'PUT', { key: 'maige', model: null }).catch(() => {});
+    await fetch(`${BASE}/api/providers?id=imgmock`, { method: 'DELETE', headers: { authorization: 'Bearer test-token-abc' } });
+    await send('/api/chat/clear', 'POST', { conv: 'chief' });
+    mock.closeAllConnections?.();
+    mock.close();
+  }
 });
 
 test('停止：能中断正在跑的回合，并干净收尾', async () => {

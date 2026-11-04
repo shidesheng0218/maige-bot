@@ -87,7 +87,7 @@ try {
   check('role 写手 200k', maxTokensForRole('麦格团队的写手：文案、脚本') === 200000);
   check('role 技术 50k', maxTokensForRole('技术负责人：代码评审') === 50000);
   check('role 评审 4k', maxTokensForRole('评审员：挑刺、压力测试') === 4000);
-  check('role 查证 2k', maxTokensForRole('查证员：联网搜索') === 2000);
+  check('role 查证 4k', maxTokensForRole('查证员：联网搜索') === 4000);
   check('role 兜底 4k', maxTokensForRole('随便一个角色') === 4000);
   check('role 空值 4k', maxTokensForRole('') === 4000);
 
@@ -343,7 +343,7 @@ try {
   const botQ = await (await fetch(base + '/api/bot?key=moke-writer')).json();
   check('bot detail Quill', botQ.displayName === 'Quill' && botQ.model.endsWith('/kimi-k3') && botQ.modelOverride === null, botQ.model);
   check('bot detail has usage+persona', typeof botQ.usage.calls === 'number' && botQ.persona.length > 0);
-  check('bot default maxTokens', botQ.maxTokens === 600 && botQ.maxTokensOverride === null);
+  check('bot default maxTokens', botQ.maxTokens === 200000 && botQ.maxTokensOverride === null);
   check('bot 404 for ghost', (await fetch(base + '/api/bot?key=ghost')).status === 404);
 
   const putBot = await fetch(base + '/api/bot', {

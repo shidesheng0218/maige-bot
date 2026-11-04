@@ -5,6 +5,19 @@ import { callLlm } from './llm.mjs';
 import { parseTool, parseCalls } from './parse.mjs';
 import { budgetExceeded, effectiveMaxTokens, budgetReasonText } from './budget.mjs';
 
+/** 检测回复里是否有"看起来像工具指令但没匹配上"的内容（格式漂移，防静默失败）。
+ *  合法 [[CALL:key]] 是接力指令，不是工具，先剔除；否则每次正常点名都会被误判重试。
+ *  宽松匹配 [[指令名 + 可选空格 + : 或全角：]]。 */
+export function hasStrayToolIntent(text) {
+  const withoutCalls = String(text || '').replace(/\[\[\s*CALL\s*[:：]\s*[A-Za-z0-9._-]+\s*\]\]/g, '');
+  return /\[\[[A-Z][A-Z_]*\s*[:：]/.test(withoutCalls);
+}
+
+/** 去掉所有 [[...]] 指令，只留人话（格式漂移兜底展示用） */
+function stripDirectives(text) {
+  return String(text || '').replace(/\[\[[\s\S]*?\]\]/g, '').trim();
+}
+
 /**
  * @param {object} deps
  */
@@ -185,17 +198,13 @@ export function createOrchestrator(deps) {
     return head + '以下是最近对话：\n\n' + lines.join('\n') + '\n\n现在轮到你发言（只说你要说的话，不要带名字前缀）：';
   }
 
-  /** 检测回复里是否有"看起来像工具指令但没匹配上"的内容（格式漂移，防静默失败）。
-   *  宽松匹配 [[指令名 + 可选空格 + :]]，覆盖 [[SEARCH :x]] 这类 parseTool 会 miss 的形态。 */
-  function hasStrayToolIntent(text) {
-    return /\[\[[A-Z][A-Z_]*\s*:/.test(text);
-  }
-
   /** 一位发言者发言：流式产出（draft 实时可见）+ 可用工具（最多 TOOL_ROUNDS 轮）；
    *  返回最后一条原文（供群聊解析 CALL 接力） */
-  async function speakWithTools(convId, speaker, system) {
+  async function speakWithTools(convId, speaker, system, opts = {}) {
     const conv = getConv(convId);
     conv.typing = speaker.key;
+    let strayRetried = false;
+    let finalToolRetried = false;
     for (let round = 0; round < TOOL_ROUNDS; round++) {
       let reply;
       conv.draft = { sender: speaker.key, name: speaker.displayName, text: '' };
@@ -231,23 +240,48 @@ export function createOrchestrator(deps) {
       const withinBudget = account(convId, reply.usage); // 记账并检查预算（token/时长）
       const tool = parseTool(reply.text);
       if (!tool) {
-        // 格式漂移：模型想调工具但写法没被解析到（如 [[WRITE: x]] 多了空格），别静默放过——回注提示让它重试
+        // 格式漂移：模型想调工具但写法没被解析到，别静默放过——先回注提示重试一次；
+        // 若第二次仍是漂移格式，至少把它说的人话贴出来，不能整轮吞掉。
         if (hasStrayToolIntent(reply.text)) {
-          await appendMessage(convId, 'system', '工具', '检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。', 'system');
-          continue; // 仍在 TOOL_ROUNDS 内，给它一次重试机会
+          if (!strayRetried) {
+            strayRetried = true;
+            await appendMessage(convId, 'system', '工具', '检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。', 'system');
+            continue;
+          }
+          const visible = stripDirectives(reply.text);
+          if (visible) await appendMessage(convId, speaker.key, speaker.displayName, visible, 'agent', reply.usage);
+          return reply.text;
         }
-        const clean = reply.text.replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
+        const clean = reply.text.replace(/\[\[\s*CALL\s*[:：]\s*[A-Za-z0-9._-]+\s*\]\]/g, '').trim();
         if (clean) await appendMessage(convId, speaker.key, speaker.displayName, clean, 'agent', reply.usage);
         return reply.text;
       }
-      // WRITE/TASK 的内容不贴进聊天（太长），其余情况下指令之外的独白正常贴出
-      const spoken = reply.text.replace(tool.raw, '').replace(/\[\[CALL:[A-Za-z0-9._-]+\]\]/g, '').trim();
-      if (spoken && tool.name !== 'write' && tool.name !== 'task') {
-        await appendMessage(convId, speaker.key, speaker.displayName, spoken, 'agent', reply.usage);
+      // 收口最后一棒：只允许交付类工具，搜索/讨论类直接打回，避免攻坚收口又变成新一轮调研
+      if (opts.final && !['task', 'write', 'deliver'].includes(tool.name)) {
+        if (!finalToolRetried) {
+          finalToolRetried = true;
+          await appendMessage(convId, 'system', '工具', '这是攻坚收口的最后一棒：不要再搜索/讨论/叫人。只输出方案正文，并用 [[TASK:类型:标题]] 开单。', 'system');
+          continue;
+        }
+        const visible = stripDirectives(reply.text);
+        if (visible) await appendMessage(convId, speaker.key, speaker.displayName, visible, 'agent', reply.usage);
+        return reply.text;
       }
+      // 指令前的正文（方案/说明）要贴出来；WRITE/TASK/DELIVER 指令后的正文是成品/需求，不贴。
+      const toolAt = reply.text.indexOf(tool.raw);
+      const beforeTool = toolAt >= 0 ? reply.text.slice(0, toolAt) : reply.text;
+      const spoken = (tool.name === 'write' || tool.name === 'task' || tool.name === 'deliver'
+        ? beforeTool
+        : reply.text.replace(tool.raw, ''))
+        .replace(/\[\[\s*CALL\s*[:：]\s*[A-Za-z0-9._-]+\s*\]\]/g, '')
+        .trim();
+      if (spoken) await appendMessage(convId, speaker.key, speaker.displayName, spoken, 'agent', reply.usage);
       if (!withinBudget) return reply.text; // 预算已尽：保留已产出的文字，不再执行工具
       const result = await execTool(tool, speaker.displayName, convId);
       await appendMessage(convId, 'system', '工具', result.note, 'system');
+      // 终端动作（写作品/开单/交付/招聘）一回复只做一次：模型常在同一轮里重复输出同一张单，
+      // 继续跑只会造成重复开单；剩余动作让它下一轮或写进方案正文。
+      if (['write', 'task', 'deliver', 'hire'].includes(tool.name)) return reply.text;
     }
     await appendMessage(convId, 'system', '系统', `${speaker.displayName} 的工具调用到上限了，先说到这。`, 'system');
     return null;
@@ -270,10 +304,18 @@ export function createOrchestrator(deps) {
       await appendMessage(convId, 'system', '圆桌', `圆桌开始，主题：${topic}（每位成员一轮，麦格收尾）`, 'system');
       notify('麦格 · 圆桌', `主题：${topic.slice(0, 60)}`);
       const order = [chief, ...members.slice(1), chief];
-      for (const m of order) {
+      for (let i = 0; i < order.length; i++) {
+        const m = order[i];
         const base = m.key === 'maige' ? buildChiefSystem(members, 'group') : buildMemberSystem(m, 'group');
-        await speakWithTools(convId, m, base
-          + `\n\n【圆桌模式】主题是「${topic}」。轮到你发言：1-3 句口语观点，给真态度，可以反对或补充前面的人；不要客套，不要复述别人的话，不要叫人接棒。`);
+        let extra;
+        if (i === 0) {
+          extra = `\n\n【圆桌开场】主题是「${topic}」。你作为主管用 1-2 句把话题钉住：给一个鲜明判断，不要客套，不要罗列观点。`;
+        } else if (i === order.length - 1) {
+          extra = `\n\n【圆桌收尾】主题是「${topic}」。用 2-3 句收口：点出最有价值的分歧或共识，给一个明确结论或行动建议；不要重复开场的话，不要复述别人原话，不要叫人接棒。`;
+        } else {
+          extra = `\n\n【圆桌模式】主题是「${topic}」。轮到你发言：1-3 句口语观点，给真态度，可以反对或补充前面的人；不要客套，不要复述别人的话，不要叫人接棒。`;
+        }
+        await speakWithTools(convId, m, base + extra);
       }
       await appendMessage(convId, 'system', '圆桌', '圆桌结束', 'system');
       context.logger.info('maige-bot.roundtable.done');
@@ -301,6 +343,23 @@ export function createOrchestrator(deps) {
         + '你是主管，先把这个任务拆成具体子项，用 [[CALL:成员key]] 把活儿派给最该上的人（可同时派多人）。说清楚每人干什么、产出什么。');
       const spoke = new Set(['maige']);
       let queue = kickoff ? parseCalls(kickoff, members, spoke) : [];
+      const others = members.filter((m) => m.key !== 'maige').map((m) => m.key);
+      if (!queue.length) {
+        // 主管没点名（或点名格式仍没解析出来）：按默认编队挑 3 人，保证攻坚不是独角戏
+        queue = others.slice(0, 3);
+        if (queue.length) {
+          await appendMessage(convId, 'system', '攻坚', `主管没点名，按默认编队先上：${queue.join('、')}`, 'system');
+        }
+      } else if (queue.length < 3) {
+        // 只点 1-2 人时补足到 3 人：真实模型常写成"先让 X 去调研，之后再 Y/Z"，但编排器不会等待状态，
+        // 只叫一个人会让攻坚退化成单聊；并行补人至少保证多视角讨论。
+        const add = others.filter((k) => !queue.includes(k)).slice(0, 3 - queue.length);
+        if (add.length) {
+          const first = queue[0];
+          queue = [...queue, ...add];
+          await appendMessage(convId, 'system', '攻坚', `主管点名了 ${first}，补上 ${add.join('、')} 一起讨论`, 'system');
+        }
+      }
       // 中间棒：被点名的人发言（可用工具、可再 CALL 别人接着讨论），最多 8 棒防暴走
       let hops = 0;
       while (queue.length && hops < 8) {
@@ -329,8 +388,11 @@ export function createOrchestrator(deps) {
       }
       // 收口：麦格汇总讨论产出方案，并按分工把子任务开成整活单（assignee 到人）
       await speakWithTools(convId, chief, brief(chief)
-        + '讨论到这里，你来收口：把大家的意见汇总成一份可执行的方案——谁做什么、产出什么、先后顺序。'
-        + '方案里需要动手产出成品的部分，直接开整活单分配下去（[[TASK:类型:标题]]，正文写清需求+交付标准），单子会自动挂到对应成员头上。简洁，能落地。');
+        + '【攻坚收口·最后一棒】讨论阶段已结束。不要再回应成员、不要再安排搜索、不要再叫任何人。'
+        + '现在必须做三件事：1) 用 5-8 行给出可执行方案（谁做什么、产出什么、先后顺序）；'
+        + '2) 方案里需要产出成品的部分，用 [[TASK:类型:标题]] 开整活单（正文写清需求+交付标准），单子会自动挂到对应成员头上；'
+        + '一条回复只开一张最关键的单，其余产出在方案里写清谁负责；'
+        + '3) 用一句话告诉 Mike 下一步。简洁，能落地。', { final: true });
       await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
       context.logger.info('maige-bot.sprint.done');
     } finally {

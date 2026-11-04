@@ -12,12 +12,15 @@ import {
 import { avatarSvgFor, kindOf, extOf } from '../miniapps/maige-bot/miniapp/node/core/avatar.mjs';
 import { maxTokensForRole } from '../miniapps/maige-bot/miniapp/node/core/roles.mjs';
 import { parseTask, serializeTask, TASK_TRANSITIONS } from '../miniapps/maige-bot/miniapp/node/core/tasks.mjs';
-import { resolveWorkspace, resolveInside, listDir } from '../miniapps/maige-bot/miniapp/node/core/fs.mjs';
+import { resolveWorkspace, resolveInside, resolveFileInside, isSafeFileName, listDir } from '../miniapps/maige-bot/miniapp/node/core/fs.mjs';
+import { isHardSensitive } from '../miniapps/maige-bot/miniapp/node/core/sensitive.mjs';
 import { resolveHostPaths, parseLlmYaml, loadLlmConfig } from '../miniapps/maige-bot/miniapp/node/core/host.mjs';
 import {
   normalizeProvider, mergeProviders, defaultProviderId, splitModelRef, joinModelRef, chatModelsOf,
 } from '../miniapps/maige-bot/miniapp/node/core/host.mjs';
 import { buildChatBody, buildChatHeaders } from '../miniapps/maige-bot/miniapp/node/core/llm.mjs';
+import { createToolExecutor } from '../miniapps/maige-bot/miniapp/node/core/tools.mjs';
+import { hasStrayToolIntent } from '../miniapps/maige-bot/miniapp/node/core/orchestrator.mjs';
 import { normalizeBudget, budgetExceeded, effectiveMaxTokens, budgetReasonText, BUDGET_LIMITS } from '../miniapps/maige-bot/miniapp/node/core/budget.mjs';
 
 // ---------- 工具指令解析 ----------
@@ -40,6 +43,31 @@ test('parseTool: 支持全部工具指令', () => {
   assert.equal(parseTool('[[SPEAK:你好]]').name, 'speak');
   assert.equal(parseTool('没有指令'), null);
   assert.equal(parseTool('[[CALL:moke-writer]]'), null);
+});
+
+test('parseTool: 宽容空格与全角冒号（模型常见漂移）', () => {
+  assert.equal(parseTool('[[SEARCH : MiniMax]]').name, 'search');
+  assert.equal(parseTool('[[READ ： maige-bot/README.md]]').arg, 'maige-bot/README.md');
+  const t = parseTool('[[TASK： text ： 晨报]]\n写五条');
+  assert.equal(t.name, 'task');
+  assert.equal(t.kind, 'text');
+  assert.equal(t.arg, '晨报');
+  assert.equal(t.content, '写五条');
+  assert.equal(parseTool('[[CONFIG： tech-lead ： maxTokens ： 8000]]').value, '8000');
+  assert.deepEqual(
+    parseCalls('[[CALL： moke-writer]] [[CALL : huajiang-visual]]', [{ key: 'moke-writer' }, { key: 'huajiang-visual' }], new Set()),
+    ['moke-writer', 'huajiang-visual'],
+  );
+});
+
+test('parseTool: 多个指令时终端指令优先（TASK 不被 SEARCH 抢掉）', () => {
+  const t = parseTool('先查 [[SEARCH:Product Hunt]]\n\n[[TASK:text:冷启动文案]]\n需求：写三条');
+  assert.equal(t.name, 'task');
+  assert.equal(t.arg, '冷启动文案');
+  // 需求正文里提到 SEARCH，也不能反过来抢掉 TASK
+  const t2 = parseTool('[[TASK:text:竞品调研]]\n需求：先 [[SEARCH:竞品]] 再整理');
+  assert.equal(t2.name, 'task');
+  assert.match(t2.content, /竞品/);
 });
 
 test('parseTool: WRITE/TASK 会把指令后的全文作为内容（单条指令独占回复）', () => {
@@ -129,7 +157,8 @@ test('maxTokensForRole: 按职责关键词取档', () => {
   assert.equal(maxTokensForRole('技术负责人：代码评审'), 50000);
   assert.equal(maxTokensForRole('主管：调度'), 8000);
   assert.equal(maxTokensForRole('评审员：挑刺'), 4000);
-  assert.equal(maxTokensForRole('查证员：联网搜索'), 2000);
+  assert.equal(maxTokensForRole('查证员：联网搜索'), 4000);
+  assert.equal(maxTokensForRole('记录员：纪要归档'), 4000);
   assert.equal(maxTokensForRole('未知角色'), 4000);
   assert.equal(maxTokensForRole(''), 4000);
 });
@@ -170,6 +199,57 @@ test('整活单：assignee 字段往返', () => {
   assert.equal(legacy.assignee, '');
 });
 
+// ---------- 工具层：card 消息参数契约 ----------
+test('tools: 搜索/作品/整活单/交付卡片落在 card 字段，不是 media', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maige-tools-'));
+  try {
+    const calls = [];
+    const tasks = [];
+    const exec = createToolExecutor({
+      getConfig: () => ({ outputsDir: dir }),
+      updateConfig: async () => ({}),
+      context: { logger: { info() {} } },
+      appendMessage: (...args) => { calls.push(args); },
+      // 故意把 Frame 放在 Quill 前面：assignee 应看正文里谁先被点名，而不是列表顺序
+      getMembers: async () => [
+        { key: 'maige' },
+        { key: 'huajiang-visual', displayName: 'Frame' },
+        { key: 'moke-writer', displayName: 'Quill' },
+      ],
+      hireBot: async () => ({}),
+      writeTask: async (t) => { tasks.push(t); },
+      readTask: async () => null,
+      notify: () => {},
+      webSearch: async () => null,
+      workspaceRoot: dir,
+      listProviders: () => [],
+      splitModelRef: () => ({}),
+      joinModelRef: () => '',
+      logError: () => {},
+      writeMemoryNote: async () => ({ id: 'm1' }),
+    });
+    await exec({ name: 'write', arg: '晨报.md', content: '今日五条' }, '麦格', 'group');
+    const workCard = calls.find((a) => a[4] === 'card' && a[7]?.type === 'work');
+    assert.ok(workCard, '应写入 work card');
+    assert.equal(workCard[6], undefined, 'media 参数必须为空');
+    assert.equal(workCard[7].name, '晨报.md');
+
+    const r = await exec({
+      name: 'task', kind: 'text', arg: '晨报单',
+      content: '@Quill 写文案\n\n@Frame 做视频\n\n[[TASK:text:第二张]]\n需求',
+    }, '麦格', 'group');
+    const taskCard = calls.find((a) => a[4] === 'card' && a[7]?.type === 'task');
+    assert.ok(taskCard, '应写入 task card');
+    assert.equal(taskCard[6], undefined, 'media 参数必须为空');
+    assert.equal(taskCard[7].title, '晨报单');
+    assert.equal(tasks.length, 1, '一次执行只开一张单');
+    assert.equal(tasks[0].assignee, 'moke-writer', 'assignee 应取正文里最先被点名的人');
+    assert.match(r.note, /还有 1 张单未执行/, '嵌套的第二张单要明确提示未执行');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------- 文件边界 ----------
 test('resolveWorkspace/resolveInside: 允许内部路径，拦截穿越', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'maige-unit-'));
@@ -186,6 +266,43 @@ test('resolveWorkspace/resolveInside: 允许内部路径，拦截穿越', async 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('作品文件名：允许中文/空格，仍拦截路径穿越', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maige-unit-'));
+  try {
+    writeFileSync(join(dir, '晨报.md'), '# hi');
+    writeFileSync(join(dir, '我的 海报.png'), 'x');
+    assert.ok(isSafeFileName('晨报.md'));
+    assert.ok(isSafeFileName('我的 海报.png'));
+    assert.equal(isSafeFileName(''), false);
+    assert.equal(isSafeFileName('../x'), false);
+    assert.equal(isSafeFileName('a/b'), false);
+    assert.equal(isSafeFileName('a\\b'), false);
+    assert.equal(isSafeFileName('x'.repeat(256)), false);
+    assert.ok(await resolveFileInside(dir, '晨报.md'));
+    assert.ok(await resolveFileInside(dir, '我的 海报.png'));
+    assert.equal(await resolveFileInside(dir, '../x'), null);
+    assert.equal(await resolveFileInside(dir, '不存在.md'), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------- 敏感记忆硬门 ----------
+test('isHardSensitive: 密码/密钥/证件命中，日常偏好不误伤', () => {
+  assert.equal(isHardSensitive('我的服务器密码是 hunter2'), true);
+  assert.equal(isHardSensitive('password: hunter2'), true);
+  assert.equal(isHardSensitive('API key 是 sk-abcdefgh12345678'), true);
+  assert.equal(isHardSensitive('sk-abcdefgh12345678'), true);
+  assert.equal(isHardSensitive('身份证号 110101199001011234'), true);
+  assert.equal(isHardSensitive('银行卡 6222021234567890123'), true);
+  assert.equal(isHardSensitive('github_pat_11ABCDEFG0123456789_abcdefghijklmnop'), true);
+  // 不误伤
+  assert.equal(isHardSensitive('我喝咖啡不加糖'), false);
+  assert.equal(isHardSensitive('密码管理器很好用'), false);
+  assert.equal(isHardSensitive('这个 token 机制讲得不错'), false);
+  assert.equal(isHardSensitive(''), false);
 });
 
 // ---------- 宿主适配层 ----------
@@ -350,15 +467,12 @@ test('budgetReasonText: 区分 token / 时长 / 手动停止', () => {
 });
 
 // ---------- 编排器：畸形指令检测 + 压缩记账（工厂注入 fake 依赖，不调真 LLM） ----------
-test('orchestrator: 检测到漂移的工具指令格式时回注重试提示，不静默放过', async () => {
-  // 验证检测的前提：漂移格式不被 parseTool 识别、但被检测正则命中；普通文本不误伤
-  // [[SEARCH :xx]]（指令名后多空格）是 parseTool 会 miss、但明显是想调工具的漂移
-  const drifted = '我搜一下 [[SEARCH :MiniMax]] 再答';
-  assert.equal(parseTool(drifted), null, '漂移格式不应被 parseTool 识别');
-  assert.ok(/\[\[[A-Z][A-Z_]*:/.test('[[SEARCH:MiniMax]]'), '正常格式应命中');
-  assert.ok(!/\[\[[A-Z][A-Z_]*:/.test('这是普通回复'), '普通文本不应误命中');
-  // 检测正则要能覆盖"想调工具但没匹配上"的形态：[[指令名 后跟非冒号字符]]
-  assert.ok(/\[\[[A-Z][A-Z_]*\s*:/.test('[[SEARCH :MiniMax]]'), '漂移格式（空格）应被宽松正则命中');
+test('orchestrator: CALL 是接力不是工具；未知大写指令才算格式漂移', async () => {
+  assert.equal(parseTool('我搜一下 [[SEARCH :MiniMax]] 再答').name, 'search', '宽容解析应识别空格形态');
+  assert.equal(hasStrayToolIntent('好的 [[CALL:moke-writer]]'), false, '合法接力不应触发重试');
+  assert.equal(hasStrayToolIntent('[[CALL： moke-writer]]'), false, '全角/空格形态的合法接力也不应触发');
+  assert.equal(hasStrayToolIntent('我搜一下 [[SEARCHX:MiniMax]] 再答'), true, '未知指令形态应被检测');
+  assert.equal(hasStrayToolIntent('这是普通回复'), false);
 });
 
 test('orchestrator: 压缩的 token 消耗记入回合预算（addUsage 被调用）', async () => {
@@ -396,6 +510,23 @@ test('search: normalizeSearchProvider 白名单化', async () => {
   assert.equal(normalizeSearchProvider({ engine: 'ghost', apiKey: 'k' }), null, '未知引擎拒收');
   assert.equal(normalizeSearchProvider({ engine: 'tavily', apiKey: '' }), null, '空 key 拒收');
   assert.equal(normalizeSearchProvider(null), null);
+});
+
+test('search: isRelevant 拦住「有结果但跑题」（必应拆词成词典）', async () => {
+  const { isRelevant } = await import('../miniapps/maige-bot/miniapp/node/core/search.mjs');
+  assert.equal(isRelevant('Product Hunt AI developer tools cold start', [
+    { title: 'product_百度百科', snippet: 'product 是英语名词' },
+  ]), false);
+  assert.equal(isRelevant('Product Hunt AI developer tools cold start', [
+    { title: 'Product Hunt – The best new products in tech.', snippet: 'developer tools' },
+  ]), true);
+  assert.equal(isRelevant('独立开发者 AI 编程工具 痛点', [
+    { title: '独立音乐_百度百科', snippet: '独立音乐类型' },
+  ]), false);
+  assert.equal(isRelevant('独立开发者 AI 编程工具 痛点', [
+    { title: '独立开发者 AI 编程工具痛点盘点', snippet: '开发者工具' },
+  ]), true);
+  assert.equal(isRelevant('', [{ title: 'x' }]), true, '无法判定时不误杀');
 });
 
 test('search: stripHtml 与免费引擎解析器（防回归 fixture）', async () => {

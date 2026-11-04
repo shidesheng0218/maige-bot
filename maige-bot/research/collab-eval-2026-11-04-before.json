@@ -1,0 +1,589 @@
+{
+  "env": {
+    "panelVersion": "0.31.1",
+    "provider": "mcode",
+    "defaultModel": "mcode/kimi-k3",
+    "llmReady": true,
+    "teamSize": 7,
+    "memoryCount": 2,
+    "budgets": null
+  },
+  "scenarios": {
+    "dm": {
+      "name": "A 单聊（Chief）",
+      "conv": "chief",
+      "text": "今天有点累，陪我唠两句，别讲大道理。",
+      "budget": {
+        "maxTokens": 12000,
+        "maxMinutes": 2
+      },
+      "startedAt": "2026-11-04T08:25:04.999Z",
+      "wallMs": 2718,
+      "finishedCleanly": true,
+      "messages": [
+        {
+          "id": 1,
+          "sender": "user",
+          "name": "Mike",
+          "text": "今天有点累，陪我唠两句，别讲大道理。",
+          "at": "2026-11-04T08:25:05.001Z",
+          "kind": "user"
+        },
+        {
+          "id": 2,
+          "sender": "maige",
+          "name": "麦格",
+          "text": "累就对了，说明今天没白过。\n\n我这儿没大道理，就一个问题：是身体累还是脑子累？身体累我劝你躺，脑子累我陪你骂。",
+          "at": "2026-11-04T08:25:07.640Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 43,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 43
+            },
+            "prompt_tokens": 1016,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1016
+            },
+            "total_tokens": 1059
+          }
+        }
+      ],
+      "turn": null,
+      "stats": {
+        "wallMs": 2718,
+        "finishedCleanly": true,
+        "messageCount": 2,
+        "agentCount": 1,
+        "systemCount": 0,
+        "cardCount": 0,
+        "mediaCount": 0,
+        "speakers": [
+          "maige"
+        ],
+        "bySpeaker": {
+          "maige": {
+            "name": "麦格",
+            "count": 1,
+            "tokens": 1059,
+            "chars": 55
+          }
+        },
+        "totalTokens": 1059,
+        "totalChars": 55,
+        "avgChars": 55,
+        "maxChars": 55,
+        "cjkRatio": 1,
+        "ruleSpeak": 0,
+        "ruleMsgs": 0,
+        "bulletMsgs": 0,
+        "headingMsgs": 0,
+        "selfIntro": 0,
+        "reps": [],
+        "interrupts": [],
+        "budgetStops": [],
+        "errors": [],
+        "toolNotes": 0,
+        "cardCounts": {},
+        "firstSpeaker": "麦格",
+        "lastSpeaker": "麦格"
+      }
+    },
+    "roundtable": {
+      "name": "B 圆桌",
+      "conv": "group",
+      "text": "圆桌：AI 会不会让打工人更累",
+      "budget": {
+        "maxTokens": 50000,
+        "maxMinutes": 5
+      },
+      "startedAt": "2026-11-04T08:25:07.724Z",
+      "wallMs": 31605,
+      "finishedCleanly": true,
+      "messages": [
+        {
+          "id": 1,
+          "sender": "user",
+          "name": "Mike",
+          "text": "圆桌：AI 会不会让打工人更累",
+          "at": "2026-11-04T08:25:07.726Z",
+          "kind": "user"
+        },
+        {
+          "id": 2,
+          "sender": "system",
+          "name": "圆桌",
+          "text": "圆桌开始，主题：AI 会不会让打工人更累（每位成员一轮，麦格收尾）",
+          "at": "2026-11-04T08:25:07.728Z",
+          "kind": "system"
+        },
+        {
+          "id": 3,
+          "sender": "maige",
+          "name": "麦格",
+          "text": "会，而且已经在发生了。AI 把「做完」的门槛拉高了，以前一天写三篇稿是勤奋，现在写十篇才算及格——省下来的时间没变成休息，变成了新的 KPI。工具越快，老板的耐心越短，这才是打工人累的真正来源。",
+          "at": "2026-11-04T08:25:11.487Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 65,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 65
+            },
+            "prompt_tokens": 1137,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1137
+            },
+            "total_tokens": 1202
+          }
+        },
+        {
+          "id": 4,
+          "sender": "huajiang-visual",
+          "name": "Frame",
+          "text": "我同意麦格说的，但我想补一个视觉层面的累：AI 让「半成品」变得太廉价了。以前你交个草稿，大家知道这是草稿；现在 AI 三秒生成一版「看起来差不多」的，你的手工精修反而显得慢、显得贵。打工人被迫在「机器速度」和「人类质感」之间反复横跳，这种撕裂感比单纯的加班更耗人。",
+          "at": "2026-11-04T08:25:17.243Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 93,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 93
+            },
+            "prompt_tokens": 1240,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1240
+            },
+            "total_tokens": 1333
+          }
+        },
+        {
+          "id": 5,
+          "sender": "lengjiao-reviewer",
+          "name": "Barb",
+          "text": "这里有个洞：你们都在说「打工人被动更累」，但漏了主动卷的那批人。AI 把技能门槛踩平之后，原来靠「会用工具」吃饭的人最先慌——他们不是被老板逼的，是自己怕被替代，主动加班学提示词、卷产出。累的来源从「外部 KPI」变成了「内部不安全感」，这个更难治，因为没人能喊停。",
+          "at": "2026-11-04T08:25:21.623Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 91,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 91
+            },
+            "prompt_tokens": 1322,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1322
+            },
+            "total_tokens": 1413
+          }
+        },
+        {
+          "id": 6,
+          "sender": "moke-writer",
+          "name": "Quill",
+          "text": "麦格说门槛变高，Frame 说半成品廉价，Barb 说主动内卷——都对，但漏了最隐蔽的一层：AI 让「等待」也变成了工作。以前等反馈是喘口气，现在盯着进度条刷新，脑子还在跑。累的不是手，是脑子永远在线。",
+          "at": "2026-11-04T08:25:25.362Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 72,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 72
+            },
+            "prompt_tokens": 1435,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1435
+            },
+            "total_tokens": 1507
+          }
+        },
+        {
+          "id": 7,
+          "sender": "suji-recorder",
+          "name": "Memo",
+          "text": "我不参与观点讨论，只记一句：本轮四个角度已齐——门槛拉高、半成品廉价、主动内卷、永远在线。分歧为零，共识是「会更累」，只是累的来源不同。",
+          "at": "2026-11-04T08:25:27.765Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 48,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 48
+            },
+            "prompt_tokens": 1431,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1431
+            },
+            "total_tokens": 1479
+          }
+        },
+        {
+          "id": 8,
+          "sender": "suyuan-researcher",
+          "name": "Sleuth",
+          "text": "我说个数据层面的：目前几乎没有长期追踪研究证明 AI 减轻了工作负担，但微软 2024 年工作趋势指数显示 68% 的人已经在用 AI 处理「做不完的工作」——不是工作变少了，是积压变多了。这个来源是微软官方报告，2024 年 5 月发布。",
+          "at": "2026-11-04T08:25:31.162Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 76,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 76
+            },
+            "prompt_tokens": 1521,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1521
+            },
+            "total_tokens": 1597
+          }
+        },
+        {
+          "id": 9,
+          "sender": "tech-lead",
+          "name": "Bolt",
+          "text": "会，但累的方式变了。以前累在重复劳动，现在累在「决策疲劳」——AI 每分钟给你十个方案，每个都要你判断、筛选、背锅。工具没替代执行，反而把执行者变成了永不下班的评审团。",
+          "at": "2026-11-04T08:25:34.201Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 60,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 60
+            },
+            "prompt_tokens": 1466,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "text_tokens": 1466
+            },
+            "total_tokens": 1526
+          }
+        },
+        {
+          "id": 10,
+          "sender": "maige",
+          "name": "麦格",
+          "text": "我补一个没人提的：AI 让「下班」这个概念彻底失效了。以前离开工位就是物理隔离，现在手机里的 AI 助手随时能干活，你的大脑会默认「反正随时能处理，不如现在看一眼」——休息的负罪感被技术合理化了。真正的累不是工作变多，是「不工作」这个选项从菜单上被悄悄划掉了。",
+          "at": "2026-11-04T08:25:39.141Z",
+          "kind": "agent",
+          "usage": {
+            "completion_tokens": 89,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 89
+            },
+            "prompt_tokens": 1626,
+            "prompt_tokens_details": {
+              "cached_tokens": 1024,
+              "text_tokens": 1626
+            },
+            "total_tokens": 1715
+          }
+        },
+        {
+          "id": 11,
+          "sender": "system",
+          "name": "圆桌",
+          "text": "圆桌结束",
+          "at": "2026-11-04T08:25:39.142Z",
+          "kind": "system"
+        }
+      ],
+      "turn": null,
+      "stats": {
+        "wallMs": 31605,
+        "finishedCleanly": true,
+        "messageCount": 11,
+        "agentCount": 8,
+        "systemCount": 2,
+        "cardCount": 0,
+        "mediaCount": 0,
+        "speakers": [
+          "maige",
+          "huajiang-visual",
+          "lengjiao-reviewer",
+          "moke-writer",
+          "suji-recorder",
+          "suyuan-researcher",
+          "tech-lead"
+        ],
+        "bySpeaker": {
+          "maige": {
+            "name": "麦格",
+            "count": 2,
+            "tokens": 2917,
+            "chars": 227
+          },
+          "huajiang-visual": {
+            "name": "Frame",
+            "count": 1,
+            "tokens": 1333,
+            "chars": 133
+          },
+          "lengjiao-reviewer": {
+            "name": "Barb",
+            "count": 1,
+            "tokens": 1413,
+            "chars": 133
+          },
+          "moke-writer": {
+            "name": "Quill",
+            "count": 1,
+            "tokens": 1507,
+            "chars": 101
+          },
+          "suji-recorder": {
+            "name": "Memo",
+            "count": 1,
+            "tokens": 1479,
+            "chars": 68
+          },
+          "suyuan-researcher": {
+            "name": "Sleuth",
+            "count": 1,
+            "tokens": 1597,
+            "chars": 120
+          },
+          "tech-lead": {
+            "name": "Bolt",
+            "count": 1,
+            "tokens": 1526,
+            "chars": 84
+          }
+        },
+        "totalTokens": 11772,
+        "totalChars": 873,
+        "avgChars": 109,
+        "maxChars": 133,
+        "cjkRatio": 0.95,
+        "ruleSpeak": 0,
+        "ruleMsgs": 0,
+        "bulletMsgs": 0,
+        "headingMsgs": 0,
+        "selfIntro": 0,
+        "reps": [],
+        "interrupts": [],
+        "budgetStops": [],
+        "errors": [],
+        "toolNotes": 0,
+        "cardCounts": {},
+        "firstSpeaker": "麦格",
+        "lastSpeaker": "麦格"
+      }
+    },
+    "sprint": {
+      "name": "C 攻坚",
+      "conv": "group",
+      "text": "攻坚：给独立开发者做一个 AI 效率工具，想一个 7 天冷启动方案",
+      "budget": {
+        "maxTokens": 120000,
+        "maxMinutes": 6
+      },
+      "startedAt": "2026-11-04T08:25:39.333Z",
+      "wallMs": 82245,
+      "finishedCleanly": true,
+      "messages": [
+        {
+          "id": 12,
+          "sender": "user",
+          "name": "Mike",
+          "text": "攻坚：给独立开发者做一个 AI 效率工具，想一个 7 天冷启动方案",
+          "at": "2026-11-04T08:25:39.334Z",
+          "kind": "user"
+        },
+        {
+          "id": 13,
+          "sender": "system",
+          "name": "攻坚",
+          "text": "攻坚开始，任务：给独立开发者做一个 AI 效率工具，想一个 7 天冷启动方案（麦格拆任务 → 成员讨论 → 麦格收口出方案）",
+          "at": "2026-11-04T08:25:39.338Z",
+          "kind": "system"
+        },
+        {
+          "id": 14,
+          "sender": "system",
+          "name": "工具",
+          "text": "检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。",
+          "at": "2026-11-04T08:25:45.791Z",
+          "kind": "system"
+        },
+        {
+          "id": 15,
+          "sender": "system",
+          "name": "工具",
+          "text": "检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。",
+          "at": "2026-11-04T08:25:55.486Z",
+          "kind": "system"
+        },
+        {
+          "id": 16,
+          "sender": "system",
+          "name": "工具",
+          "text": "检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。",
+          "at": "2026-11-04T08:26:07.343Z",
+          "kind": "system"
+        },
+        {
+          "id": 17,
+          "sender": "system",
+          "name": "系统",
+          "text": "麦格 的工具调用到上限了，先说到这。",
+          "at": "2026-11-04T08:26:07.344Z",
+          "kind": "system"
+        },
+        {
+          "id": 18,
+          "sender": "system",
+          "name": "整活单",
+          "text": "",
+          "at": "2026-11-04T08:26:35.534Z",
+          "kind": "card",
+          "media": {
+            "type": "task",
+            "title": "竞品调研简报：AI 编程助手赛道",
+            "kind": "text",
+            "status": "ready",
+            "body": "Sleuth 负责。调研 Cursor、Codeium、Tabnine、GitHub Copilot 四款产品，重点看：\n1. 独立开发者在哪些场景下抱怨最多（翻 Reddit、Twitter、HackerNews）\n2. 现有产品的定价策略和用户吐槽点\n3. 找出 3 个我们可以切入的差异化机会\n\n交付标准：1500 字以内，要有具体截图/链接佐证，别泛泛而谈。明天中午前交。\n\n[[TASK:text:冷启动内容包：5 篇痛点短文]]\nQuill 负责。写 5 篇 200-300 字的短内容，主题围绕独立开发者写代码时的真实痛点（比如\"改别人代码像考古\"、\"写文档比写代码还累\"），每篇结尾自然引出我们的工具。\n\n要求：\n- 语气像朋友吐槽，不像营销号\n- 要有具体场景和细节，别空谈\"效率提升\"\n- 参考 V2EX、Reddit 上的真实帖子风格\n\n交付标准：5 篇成稿，可直接发布。后天上午交。\n\n[[TASK:text:发布文案三版本 + 质疑应对话术]]\nQuill + Barb 协作。\nQuill 写 3 个版本的正式发布文案：\n1. Twitter 版（280 字以内，要有钩子）\n2. Product Hunt 版（突出创新点和用户价值）\n3. 独立开发者社区版（V2EX/Reddit 风格，更技术向）\n\nBarb 负责挑刺，列出用户可能的 10 个质疑（比如\"这跟 Cop\n…"
+          }
+        },
+        {
+          "id": 19,
+          "sender": "system",
+          "name": "工具",
+          "text": "麦格 开了整活单「竞品调研简报：AI 编程助手赛道」（text，已就绪免确认），已贴在上面，点开始即制作",
+          "at": "2026-11-04T08:26:35.535Z",
+          "kind": "system"
+        },
+        {
+          "id": 20,
+          "sender": "system",
+          "name": "工具",
+          "text": "检测到你的回复里有类似工具指令的格式，但没被正确识别。请对照工具说明重新输出该指令（注意 [[指令:参数]] 的格式，不要有多余空格）。",
+          "at": "2026-11-04T08:26:45.811Z",
+          "kind": "system"
+        },
+        {
+          "id": 21,
+          "sender": "system",
+          "name": "整活单",
+          "text": "",
+          "at": "2026-11-04T08:27:01.087Z",
+          "kind": "card",
+          "media": {
+            "type": "task",
+            "title": "7天冷启动执行清单",
+            "kind": "text",
+            "status": "ready",
+            "body": "需求：把上面方案细化成每日 checklist，含具体动作、负责人、验收标准。输出 markdown 表格，直接可用。\n\n---\n\nSleuth 的竞品简报单已经挂上了，其他单子等 Mike 确认核心功能后再开。\n\n有异议现在提，没有就散会开干。"
+          }
+        },
+        {
+          "id": 22,
+          "sender": "system",
+          "name": "工具",
+          "text": "麦格 开了整活单「7天冷启动执行清单」（text，已就绪免确认），已贴在上面，点开始即制作",
+          "at": "2026-11-04T08:27:01.087Z",
+          "kind": "system"
+        },
+        {
+          "id": 23,
+          "sender": "system",
+          "name": "系统",
+          "text": "麦格 的工具调用到上限了，先说到这。",
+          "at": "2026-11-04T08:27:01.088Z",
+          "kind": "system"
+        },
+        {
+          "id": 24,
+          "sender": "system",
+          "name": "攻坚",
+          "text": "攻坚结束",
+          "at": "2026-11-04T08:27:01.088Z",
+          "kind": "system"
+        }
+      ],
+      "turn": null,
+      "stats": {
+        "wallMs": 82245,
+        "finishedCleanly": true,
+        "messageCount": 13,
+        "agentCount": 0,
+        "systemCount": 10,
+        "cardCount": 2,
+        "mediaCount": 0,
+        "speakers": [],
+        "bySpeaker": {},
+        "totalTokens": 0,
+        "totalChars": 0,
+        "avgChars": 0,
+        "maxChars": 0,
+        "cjkRatio": 0,
+        "ruleSpeak": 0,
+        "ruleMsgs": 0,
+        "bulletMsgs": 0,
+        "headingMsgs": 0,
+        "selfIntro": 0,
+        "reps": [],
+        "interrupts": [],
+        "budgetStops": [],
+        "errors": [],
+        "toolNotes": 6,
+        "cardCounts": {
+          "?": 2
+        },
+        "firstSpeaker": null,
+        "lastSpeaker": null
+      }
+    }
+  },
+  "tasks": {
+    "dir": "/var/folders/s7/8lyhxsj967zfr7wb_65bnb400000gn/T/maige-eval-2PTNY9/tasks",
+    "items": [
+      {
+        "id": "t-mw1usbq2",
+        "title": "7天冷启动执行清单",
+        "kind": "text",
+        "status": "ready",
+        "created": "2026-11-04T08:27:01.087Z",
+        "updated": "2026-11-04T08:27:01.087Z",
+        "createdBy": "麦格",
+        "assignee": "suyuan-researcher",
+        "conv": "group",
+        "deliverables": [],
+        "body": "需求：把上面方案细化成每日 checklist，含具体动作、负责人、验收标准。输出 markdown 表格，直接可用。\n\n---\n\nSleuth 的竞品简报单已经挂上了，其他单子等 Mike 确认核心功能后再开。\n\n有异议现在提，没有就散会开干。"
+      },
+      {
+        "id": "t-mw1urs0a",
+        "title": "竞品调研简报：AI 编程助手赛道",
+        "kind": "text",
+        "status": "ready",
+        "created": "2026-11-04T08:26:35.534Z",
+        "updated": "2026-11-04T08:26:35.534Z",
+        "createdBy": "麦格",
+        "assignee": "huajiang-visual",
+        "conv": "group",
+        "deliverables": [],
+        "body": "Sleuth 负责。调研 Cursor、Codeium、Tabnine、GitHub Copilot 四款产品，重点看：\n1. 独立开发者在哪些场景下抱怨最多（翻 Reddit、Twitter、HackerNews）\n2. 现有产品的定价策略和用户吐槽点\n3. 找出 3 个我们可以切入的差异化机会\n\n交付标准：1500 字以内，要有具体截图/链接佐证，别泛泛而谈。明天中午前交。\n\n[[TASK:text:冷启动内容包：5 篇痛点短文]]\nQuill 负责。写 5 篇 200-300 字的短内容，主题围绕独立开发者写代码时的真实痛点（比如\"改别人代码像考古\"、\"写文档比写代码还累\"），每篇结尾自然引出我们的工具。\n\n要求：\n- 语气像朋友吐槽，不像营销号\n- 要有具体场景和细节，别空谈\"效率提升\"\n- 参考 V2EX、Reddit 上的真实帖子风格\n\n交付标准：5 篇成稿，可直接发布。后天上午交。\n\n[[TASK:text:发布文案三版本 + 质疑应对话术]]\nQuill + Barb 协作。\nQuill 写 3 个版本的正式发布文案：\n1. Twitter 版（280 字以内，要有钩子）\n2. Product Hunt 版（突出创新点和用户价值）\n3. 独立开发者社区版（V2EX/Reddit 风格，更技术向）\n\nBarb 负责挑刺，列出用户可能的 10 个质疑（比如\"这跟 Copilot 有啥区别\"、\"数据安全吗\"、\"为什么收费\"），并给出回应话术。\n\n交付标准：文案可直接用，话术要能说服人。Day 5 早上交。\n\n---\n\n**其他成员待命：**\n- **Frame**：等 Bolt 把 MVP 界面定下来后，开始做视觉物料（Day 3 启动）\n- **Bolt**：今天先把核心功能跑通，明天给我演示\n- **Memo**：Day 5 开始整理 FAQ，Day 7 做数据复盘模板\n\n有问题现在提，没问题就散会开干。"
+      }
+    ]
+  },
+  "usage": {
+    "totalTokens": 1059,
+    "totalCalls": 1,
+    "byMember": [
+      {
+        "key": "maige",
+        "name": "麦格",
+        "calls": 1,
+        "tokens": 1059
+      }
+    ]
+  }
+}
