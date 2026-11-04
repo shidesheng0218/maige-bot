@@ -5,7 +5,7 @@
 
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod } from 'node:fs/promises';
+import { readFile, readdir, stat, unlink, realpath, mkdir, writeFile, chmod, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -25,13 +25,14 @@ import { maxTokensForRole, MAX_TOKENS_LIMIT } from './core/roles.mjs';
 import { CHAT_MAX_TOKENS, NON_CHAT_MODEL } from './core/llm.mjs';
 import { normalizeBudget } from './core/budget.mjs';
 import { sendJson, sendError, readBody } from './core/http.mjs';
-import { resolveWorkspace, resolveInside, listDir } from './core/fs.mjs';
+import { resolveWorkspace, resolveInside, resolveFileInside, isSafeFileName, listDir } from './core/fs.mjs';
+import { isHardSensitive } from './core/sensitive.mjs';
 import { TASK_TRANSITIONS, TASK_KINDS, serializeTask, parseTask } from './core/tasks.mjs';
 import { createToolExecutor } from './core/tools.mjs';
 import { createOrchestrator } from './core/orchestrator.mjs';
 import {
   HTTP_URL, stripHtml, FREE_ENGINES, API_ENGINE_DEFS,
-  normalizeSearchProvider, createHealthTracker, buildEngineOrder,
+  normalizeSearchProvider, createHealthTracker, buildEngineOrder, isRelevant,
 } from './core/search.mjs';
 
 // 向后兼容：测试与外部脚本从 server.mjs 导入这些纯函数
@@ -53,7 +54,7 @@ const ICON_EXTS = ['.png', '.jpg'];
 // 模型来源：宿主适配层（config.yaml 的 OpenAI 兼容 provider，或 MAIGE_LLM_* 环境变量）。
 // 凭据只留在 Node 进程，不进 Client、不进日志。
 
-const PANEL_VERSION = '0.28.0';
+const PANEL_VERSION = '0.31.2';
 // 新成员 key 规则（agent 目录名）：小写字母开头，小写字母/数字/连字符
 const BOT_KEY = /^[a-z][a-z0-9-]{2,30}$/;
 // 整活单（任务）：文件存储在 maige-bot/tasks/，面板与 MCode 会话共享同一目录（交接靠文件，不靠 API）
@@ -194,6 +195,27 @@ export async function start(context) {
     return merged;
   }
 
+  /** 对外回显用配置：抹掉所有凭据（MiniMax / 模型服务 / 搜索源），只报是否已配置 */
+  function redactConfig(cfg) {
+    const strip = (p) => {
+      const { apiKey, ...rest } = p;
+      return { ...rest, hasKey: !!apiKey };
+    };
+    return {
+      memoryDir: cfg.memoryDir,
+      outputsDir: cfg.outputsDir,
+      ownerName: cfg.ownerName,
+      models: cfg.models,
+      capabilities: cfg.capabilities,
+      maxTokens: cfg.maxTokens,
+      providers: (cfg.providers || []).map(strip),
+      searchProviders: (cfg.searchProviders || []).map(strip),
+      budget: cfg.budget,
+      notifications: cfg.notifications,
+      minimaxApiKey: cfg.minimaxApiKey ? '(已配置)' : '',
+    };
+  }
+
   let config = await loadConfig();
   await mkdir(config.memoryDir, { recursive: true }).catch(() => {});
   // 存量配置里可能已有 API key：启动时收紧权限（仅当前用户可读写）
@@ -216,7 +238,11 @@ export async function start(context) {
   function defaultProvider() {
     const list = getProviders();
     if (!list.length) return null;
-    return list.find((p) => !p.builtin) || list[0];
+    // 优先用户自配且已填 key 的服务；没 key 的服务不算可用，别让它抢默认
+    return list.find((p) => !p.builtin && p.apiKey)
+      || list.find((p) => p.apiKey)
+      || list.find((p) => !p.builtin)
+      || list[0];
   }
   /** 解析某个 bot 该用哪个 provider + 模型（配置值支持 'provider/model' 与旧版裸 model id） */
   function resolveModelFor(botKey) {
@@ -232,7 +258,8 @@ export async function start(context) {
     return { provider, model: parsed.model || provider.defaultModel || provider.models?.[0] || '', ref };
   }
   // 动态判定：用户随时新增 provider，面板立刻可用（不是启动时算一次）
-  const llmReady = () => getProviders().length > 0;
+  // 必须真填了 key 才算就绪——否则聊天请求会 200 后异步 401，体验上像「信号断了」
+  const llmReady = () => getProviders().some((p) => !!p.apiKey);
   /** 当前回合预算（用户可配；0 = 不限） */
   const getBudget = () => normalizeBudget(config.budget);
   // 宿主连接器探针（仅 MCode 宿主注入；standalone 无）。启动时列出可用工具，供诊断页与后续 GENERATE 能力评估。
@@ -257,6 +284,8 @@ export async function start(context) {
   const imagesDir = join(context.dataDir, 'images');
   const CONV_ID = /^[A-Za-z0-9:_-]{1,64}$/;
   const convs = Object.create(null);
+  // 外部事件幂等去重（只留最近 100 个 id，内存即可）
+  const recentEvents = new Set();
   function getConv(id) {
     if (!convs[id]) convs[id] = { messages: [], seq: 0, typing: null, running: false };
     return convs[id];
@@ -282,13 +311,21 @@ export async function start(context) {
     }
   } catch { /* 首次启动无历史 */ }
 
-  async function persistChat() {
+  // 串行写 + 原子替换：群聊同棒多人并行发言时，整文件覆盖写不能交错（否则旧快照会覆盖新消息）
+  let chatWriteChain = Promise.resolve();
+  function persistChat() {
     const out = { convs: {} };
     for (const [cid, c] of Object.entries(convs)) {
       if (c.messages.length || c.summary) out.convs[cid] = { messages: c.messages.slice(-500), summary: c.summary || null };
     }
-    await mkdir(context.dataDir, { recursive: true });
-    await writeFile(chatFile, JSON.stringify(out, null, 2), 'utf8');
+    const payload = JSON.stringify(out, null, 2);
+    chatWriteChain = chatWriteChain.catch(() => {}).then(async () => {
+      await mkdir(context.dataDir, { recursive: true });
+      const tmp = chatFile + '.tmp';
+      await writeFile(tmp, payload, { encoding: 'utf8', mode: 0o600 });
+      await rename(tmp, chatFile);
+    });
+    return chatWriteChain;
   }
 
   // ---------- 诊断日志（环形 50 条，仅留在进程内存与面板内，不外发） ----------
@@ -334,16 +371,39 @@ export async function start(context) {
       s.lastRunAt = now.toISOString();
       await persistSchedules().catch(() => {});
       await appendMessage('group', 'scheduler', '定时任务', `【${s.name}】到点`, 'system');
-      notify('麦格 · 定时任务', `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在发言`);
+      const modeLabel = s.mode === 'sprint' ? '攻坚' : s.mode === 'roundtable' ? '圆桌' : '';
+      notify(`麦格 · 定时任务${modeLabel ? ' · ' + modeLabel : ''}`,
+        `【${s.name}】到点，${s.memberKey === 'maige' ? '麦格' : s.memberKey} 正在${modeLabel || '发言'}`);
       if (llmReady()) {
         // goal：带产出目标（晨报/调研等），成员按目标跑完并交付
-        const text = s.goal
+        const prompt = s.goal
           ? `${s.text}\n\n【定时目标】${s.goal}（做完把成品交付进作品库，别只回一句话）`
           : s.text;
-        await appendMessage('group', 'user', config.ownerName || 'Mike', text, 'user');
-        await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
+        // 本次运行临时挂上定时任务指定的能力包（不动全局配置，finally 还原）
+        const extraCaps = Array.isArray(s.capabilities) ? s.capabilities.filter((x) => ID_PATTERN.test(x)) : [];
+        let prevCaps = null;
+        if (extraCaps.length) {
+          prevCaps = config.capabilities || {};
+          const target = s.memberKey || 'maige';
+          config = {
+            ...config,
+            capabilities: { ...prevCaps, [target]: [...new Set([...(prevCaps[target] || []), ...extraCaps])] },
+          };
+        }
+        try {
+          if (s.mode === 'sprint') {
+            await runSprint('group', prompt);
+          } else if (s.mode === 'roundtable') {
+            await runRoundtable('group', prompt);
+          } else {
+            await appendMessage('group', 'user', config.ownerName || 'Mike', prompt, 'user');
+            await runTurn('group', s.memberKey === 'maige' ? null : s.memberKey);
+          }
+        } finally {
+          if (prevCaps) config = { ...config, capabilities: prevCaps };
+        }
       }
-      context.logger.info('maige-bot.schedule.fired');
+      context.logger.info('maige-bot.schedule.fired', { mode: s.mode || 'normal' });
     }
   }
 
@@ -355,6 +415,9 @@ export async function start(context) {
     c.messages.push({ id: ++c.seq, sender, name, text, at: new Date().toISOString(), kind, ...(usage ? { usage } : {}), ...(media ? { media } : {}), ...(card ? { card } : {}) });
     await persistChat().catch(() => {});
   }
+
+  /** 成员 key → 职责（无显式 maxTokens 覆盖时按职责自动分档） */
+  const memberRoles = new Map();
 
   /** 麦格 + 团队花名册（动态扫描 team: maige） */
   async function getMembers() {
@@ -386,6 +449,8 @@ export async function start(context) {
         system: agentRaw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim(),
       });
     }
+    memberRoles.clear();
+    for (const m of members) memberRoles.set(m.key, m.role);
     return members;
   }
 
@@ -484,7 +549,10 @@ ${roster}
   function maxTokensFor(botKey) {
     const override = (config.maxTokens || {})[botKey];
     if (override) return override;
-    return undefined; // 让 callLlm 用 CHAT_MAX_TOKENS；hire 时已写入 config，此处不再猜
+    // 种子成员由 install.sh 直接铺文件、不走 hireBot，所以这里按职责兜底分档，
+    // 否则全新安装后全队都会被 CHAT_MAX_TOKENS（600）掐脖子
+    const role = memberRoles.get(botKey);
+    return role ? maxTokensForRole(role) : undefined;
   }
 
   // ---------- 整活单（任务状态机，文件即真相） ----------
@@ -608,19 +676,23 @@ ${roster}
     return writeMemoryNote(m[1].trim(), 'user');
   }
 
-  /** 确定性写记忆（用户触发或 bot 主动 REMEMBER 都用这条）；返回 id 或 null */
+  /** 确定性写记忆（用户触发或 bot 主动 REMEMBER 都用这条）。
+   *  返回 { id } / { blocked: 'sensitive' } / { error: 'empty' | 'unavailable' }。
+   *  硬门在代码层执行：密码/密钥/token/证件号永不落盘，不依赖模型自觉。 */
   async function writeMemoryNote(body, source) {
-    if (!body) return null;
+    if (!body) return { error: 'empty' };
+    if (isHardSensitive(body)) return { blocked: 'sensitive' };
     const listed = await listDir(config.memoryDir);
-    if (!listed.dirExists) return null;
-    const id = `m-${Date.now().toString(36)}`;
+    if (!listed.dirExists) return { error: 'unavailable' };
+    // 加随机后缀：并行发言/连续写入时避免同毫秒 id 碰撞互相覆盖
+    const id = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     await writeFile(join(listed.real, `${id}.md`), serializeMemory({
       name: body.split('\n')[0].slice(0, 40) || '未命名',
       description: body.slice(0, 80).replace(/\r?\n/g, ' '),
       source, sensitive: false, body, date: today(),
     }), 'utf8');
     context.logger.info('maige-bot.memory.captured');
-    return id;
+    return { id };
   }
 
   /** 联网搜索：可插拔多源（API 层有 key 的在前 + 免费层兜底），健康度降权，独立超时。
@@ -657,8 +729,12 @@ ${roster}
     for (const engine of engines) {
       try {
         const items = await runSearchEngine(engine, query);
-        if (items.length) { searchHealth.recordSuccess(engine.id); return { engine: engine.name, items }; }
-        searchHealth.recordFailure(engine.id); // 空结果也算失败（可能被反爬）
+        // 有结果但完全跑题（必应拆词成词典）也算失败，继续换下一个源
+        if (items.length && isRelevant(query, items)) {
+          searchHealth.recordSuccess(engine.id);
+          return { engine: engine.name, items };
+        }
+        searchHealth.recordFailure(engine.id); // 空结果/跑题也算失败（可能被反爬/拆词）
       } catch (e) {
         searchHealth.recordFailure(engine.id);
         logError('search', `${engine.name}: ${e.message}`); // 单源失败静默降级
@@ -680,10 +756,11 @@ ${roster}
     splitModelRef, joinModelRef,
   });
 
-  /** 最近一条带图用户消息的 dataURL（读文件回 base64），没有则 null */
+  /** 最近一条带图用户消息的 dataURL（读文件回 base64），没有则 null。
+   *  只认「最后一条用户消息」：发过一次图后，旧图不再每轮重复进视觉上下文。 */
   async function lastImageDataUrl(conv) {
-    const last = [...conv.messages].reverse().find((m) => m.kind === 'user' && m.image);
-    if (!last) return null;
+    const last = [...conv.messages].reverse().find((m) => m.kind === 'user');
+    if (!last || !last.image) return null;
     try {
       const target = await resolveInside(imagesDir, last.image);
       if (!target) return null;
@@ -872,6 +949,9 @@ ${roster}
       const body = await readBody(req);
       const norm = normalizeMemoryInput(body);
       if (norm.error) return sendError(res, 400, norm.error);
+      if (isHardSensitive([norm.value.name, norm.value.description, norm.value.body].join('\n'))) {
+        return sendError(res, 400, 'sensitive_blocked');
+      }
       const listed = await listDir(config.memoryDir);
       if (!listed.dirExists) return sendError(res, 400, 'memory_dir_missing');
       let id = typeof body.id === 'string' && ID_PATTERN.test(body.id) && !body.id.includes('..') ? body.id : '';
@@ -891,6 +971,9 @@ ${roster}
       const body = await readBody(req);
       const norm = normalizeMemoryInput(body);
       if (norm.error) return sendError(res, 400, norm.error);
+      if (isHardSensitive([norm.value.name, norm.value.description, norm.value.body].join('\n'))) {
+        return sendError(res, 400, 'sensitive_blocked');
+      }
       // 编辑保留原始记录日期（记住的时间不变）
       norm.value.date = existing.date || norm.value.date;
       await writeFile(target, serializeMemory(norm.value), 'utf8');
@@ -919,7 +1002,7 @@ ${roster}
 
     if (method === 'GET' && path === '/api/outputs/file') {
       const name = url.searchParams.get('name') ?? '';
-      const target = await resolveInside(config.outputsDir, name);
+      const target = await resolveFileInside(config.outputsDir, name);
       if (!target) return sendError(res, 404, 'not_found');
       const content = await readFile(target);
       res.writeHead(200, {
@@ -945,7 +1028,7 @@ ${roster}
       for (const dir of ICONS_DIRS) {
         for (const c of candidates) {
           for (const ext of ICON_EXTS) {
-            const target = await resolveInside(dir, `${c}${ext}`);
+            const target = await resolveFileInside(dir, `${c}${ext}`);
             if (!target) continue;
             const content = await readFile(target);
             res.writeHead(200, { 'content-type': ext === '.png' ? 'image/png' : 'image/jpeg', 'cache-control': 'public, max-age=300' });
@@ -1213,6 +1296,7 @@ ${roster}
       }
       const packs = await listPacks();
       const attachedIds = (config.capabilities || {})[key] || [];
+      const configuredMax = (config.maxTokens || {})[key] || null;
       const maxTok = maxTokensFor(key);
       const sel = resolveModelFor(key);
       sendJson(res, 200, {
@@ -1225,7 +1309,7 @@ ${roster}
         provider: sel ? sel.provider.id : '',
         providerName: sel ? sel.provider.name : '',
         maxTokens: maxTok || CHAT_MAX_TOKENS,
-        maxTokensOverride: maxTok || null,
+        maxTokensOverride: configuredMax,
         capabilities: attachedIds.map((id) => {
           const p = packs.find((x) => x.id === id);
           return p ? { id: p.id, name: p.name, description: p.description } : null;
@@ -1286,7 +1370,8 @@ ${roster}
 
     if (method === 'POST' && path === '/api/chat/send') {
       if (!llmReady()) return sendError(res, 503, 'llm_unavailable');
-      const body = await readBody(req);
+      // 附图是 base64 data URL：7MB 图片经 JSON 包装后远超默认 256KB body 上限，这里单独放宽
+      const body = await readBody(req, 9 * 1024 * 1024);
       const convId = typeof body.conv === 'string' && CONV_ID.test(body.conv) ? body.conv : 'group';
       const text = String(body.text ?? '').trim();
       // 图片附件：data URL 校验 + 落盘（不进 chat.json 正文，消息只存引用 id）
@@ -1313,9 +1398,13 @@ ${roster}
         c.messages[c.messages.length - 1].image = imageId;
         await persistChat().catch(() => {});
       }
-      // 「记住：…」确定性落盘（不经过模型）
+      // 「记住：…」确定性落盘（不经过模型；硬门在写入口拦截）
       const captured = await maybeCaptureMemory(text);
-      if (captured) await appendMessage(convId, 'system', '记忆', '已记住，会出现在之后所有对话的上下文里。', 'system');
+      if (captured?.blocked) {
+        await appendMessage(convId, 'system', '记忆', '这条不记：涉及密码/密钥/证件号（硬门，永不写入、永不注入）。', 'system');
+      } else if (captured?.id) {
+        await appendMessage(convId, 'system', '记忆', '已记住，会出现在之后所有对话的上下文里。', 'system');
+      }
       // 异步管线：命中搜索词先搜（结果作为系统消息进上下文），再触发回复
       void (async () => {
         if (SEARCH_TRIGGER.test(text)) {
@@ -1398,6 +1487,41 @@ ${roster}
       return;
     }
 
+    // ---------- 外部事件入口（webhook）：任何系统都能把事件丢给麦格处理 ----------
+    // 鉴权沿用面板 token（?token= 或 Authorization: Bearer）。支持幂等 id 去重。
+    if (method === 'POST' && path === '/api/event') {
+      const body = await readBody(req);
+      const text = String(body.text ?? '').trim();
+      if (!text) return sendError(res, 400, 'invalid_event');
+      if (text.length > 4000) return sendError(res, 400, 'event_too_long');
+      if (!llmReady()) return sendError(res, 503, 'llm_unavailable');
+      const convId = typeof body.conv === 'string' && CONV_ID.test(body.conv) ? body.conv : 'group';
+      const source = String(body.source ?? '外部事件').trim().slice(0, 40) || '外部事件';
+      const mode = ['normal', 'sprint', 'roundtable'].includes(body.mode) ? body.mode : 'normal';
+      // 幂等：同一个事件 id 只处理一次（防 webhook 重试刷屏）
+      const eid = String(body.id ?? '').trim().slice(0, 120);
+      if (eid) {
+        if (recentEvents.has(eid)) return sendJson(res, 200, { ok: true, duplicate: true });
+        recentEvents.add(eid);
+        if (recentEvents.size > 100) recentEvents.delete(recentEvents.values().next().value);
+      }
+      await appendMessage(convId, 'system', '事件', `【外部事件 · ${source}】${text.slice(0, 200)}`, 'system');
+      const speaker = typeof body.speaker === 'string' ? body.speaker : '';
+      await appendMessage(convId, 'user', source, text, 'user');
+      void (async () => {
+        try {
+          if (mode === 'sprint' && convId === 'group') await runSprint(convId, text);
+          else if (mode === 'roundtable' && convId === 'group') await runRoundtable(convId, text);
+          else await runTurn(convId, speaker && speaker !== 'maige' ? speaker : undefined);
+        } catch (e) {
+          logError('event', e.message);
+        }
+      })();
+      context.logger.info('maige-bot.event.received', { source, conv: convId, mode });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     // ---------- 数据导出（打包记忆/任务/作品/配置为 zip，落作品库） ----------
     if (method === 'POST' && path === '/api/data/export') {
       try {
@@ -1406,11 +1530,23 @@ ${roster}
         if (!dir) return sendError(res, 400, 'outputs_dir_missing');
         const zipPath = join(dir, fname);
         const paths = [];
-        for (const abs of [config.memoryDir, TASKS_DIR, config.outputsDir, join(context.dataDir, 'config.json')]) {
+        for (const abs of [config.memoryDir, TASKS_DIR, config.outputsDir]) {
           if (await stat(abs).then(() => true).catch(() => false)) paths.push(abs);
         }
+        // 配置给脱敏副本：备份可以带走，但 key 不跟着走
+        const liveConfigPath = join(context.dataDir, 'config.json');
+        let redactedPath = null;
+        if (await stat(liveConfigPath).then(() => true).catch(() => false)) {
+          redactedPath = join(context.dataDir, `config.redacted.${process.pid}.${Date.now()}.json`);
+          await writeFile(redactedPath, JSON.stringify(redactConfig(config), null, 2), { encoding: 'utf8', mode: 0o600 });
+          paths.push(redactedPath);
+        }
         if (!paths.length) return sendError(res, 400, 'nothing_to_export');
-        await execFileAsync('zip', ['-r', zipPath, ...paths], { cwd: '/' });
+        try {
+          await execFileAsync('zip', ['-r', zipPath, ...paths], { cwd: '/' });
+        } finally {
+          if (redactedPath) await unlink(redactedPath).catch(() => { /* 清理失败不影响导出 */ });
+        }
         context.logger.info('maige-bot.data.exported', { name: fname });
         sendJson(res, 200, { ok: true, name: fname });
       } catch (e) {
@@ -1464,7 +1600,7 @@ ${roster}
         existing.status = body.status;
         if (body.status === 'done') {
           const dls = Array.isArray(body.deliverables) ? body.deliverables : [];
-          existing.deliverables = dls.filter((d) => typeof d === 'string' && ID_PATTERN.test(d)).slice(0, 20);
+          existing.deliverables = dls.filter((d) => isSafeFileName(d)).slice(0, 20);
         }
       }
       if (typeof body.title === 'string' && body.title.trim()) existing.title = body.title.trim().slice(0, 80);
@@ -1503,12 +1639,26 @@ ${roster}
       const text = String(body.text ?? '').trim();
       const memberKey = String(body.memberKey ?? 'maige');
       if (!name || !text) return sendError(res, 400, 'invalid_fields');
+      // 发言人必须是真实成员，避免到点对着幽灵成员空跑
+      if (!(await getMembers()).some((m) => m.key === memberKey)) return sendError(res, 400, 'invalid_member');
       const freqType = body.freqType === 'interval' ? 'interval' : 'daily';
+      const mode = ['normal', 'sprint', 'roundtable'].includes(body.mode) ? body.mode : 'normal';
+      // 能力包白名单：只允许真实存在的包
+      let caps = [];
+      if (Array.isArray(body.capabilities) && body.capabilities.length) {
+        const packs = await listPacks();
+        const valid = new Set(packs.map((p) => p.id));
+        caps = [...new Set(body.capabilities.filter((x) => typeof x === 'string' && valid.has(x)))].slice(0, 10);
+      }
       const s = {
         id: 's-' + Date.now().toString(36),
         name, text, memberKey, freqType,
         // goal：带产出目标（晨报/调研等）；有则成员跑完要交付成品进作品库
         goal: typeof body.goal === 'string' ? body.goal.trim().slice(0, 300) : '',
+        // mode：normal=指定成员发言；sprint=攻坚（拆任务+分工+交付）；roundtable=圆桌（每人一轮）
+        mode,
+        // capabilities：本次运行临时挂载的能力包（不写回全局配置）
+        capabilities: caps,
         time: typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : '09:00',
         minutes: Math.max(1, Math.min(1440, parseInt(body.minutes, 10) || 60)),
         enabled: true,
@@ -1517,7 +1667,7 @@ ${roster}
       };
       schedules.push(s);
       await persistSchedules();
-      context.logger.info('maige-bot.schedule.created');
+      context.logger.info('maige-bot.schedule.created', { mode });
       sendJson(res, 200, { ok: true, id: s.id });
       return;
     }
@@ -1574,8 +1724,8 @@ ${roster}
       config = await saveConfig(next);
       if (config.memoryDir) await mkdir(config.memoryDir, { recursive: true }).catch(() => {});
       context.logger.info('maige-bot.config.saved');
-      // 回显时抹掉 key，只报是否已配置——key 不进响应体
-      sendJson(res, 200, { ok: true, ...config, minimaxApiKey: config.minimaxApiKey ? '(已配置)' : '' });
+      // 回显时抹掉所有 key（MiniMax / 模型服务 / 搜索源），只报是否已配置——key 不进响应体
+      sendJson(res, 200, { ok: true, ...redactConfig(config) });
       return;
     }
 
@@ -1585,8 +1735,11 @@ ${roster}
   const server = createServer((req, res) => {
     route(req, res).catch((error) => {
       context.logger.warn('maige-bot.request.failed');
-      if (!res.headersSent) sendError(res, 500, 'internal');
-      else res.end();
+      if (res.headersSent) { res.end(); return; }
+      // body 超限/JSON 非法给出准确状态码，而不是一律 500
+      if (error && error.message === 'payload_too_large') return sendError(res, 413, 'payload_too_large');
+      if (error instanceof SyntaxError) return sendError(res, 400, 'invalid_json');
+      sendError(res, 500, 'internal');
     });
   });
 

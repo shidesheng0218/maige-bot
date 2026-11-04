@@ -151,11 +151,12 @@ export function mergeProviders(userProviders, builtinMCode, envProvider) {
   return out;
 }
 
-/** 默认 provider：优先用户配置的第一条，其次内建 */
+/** 默认 provider：优先用户配置且已填 key 的，其次内建且已填 key 的，最后按原顺序 */
 export function defaultProviderId(providers) {
   if (!providers.length) return '';
-  const user = providers.find((p) => !p.builtin);
-  return (user || providers[0]).id;
+  const withKey = providers.filter((p) => p.apiKey);
+  const user = withKey.find((p) => !p.builtin);
+  return (user || withKey[0] || providers.find((p) => !p.builtin) || providers[0]).id;
 }
 
 /** 解析模型引用：'provider/model' 或裸 model id（旧格式，向后兼容） */

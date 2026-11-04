@@ -10,7 +10,7 @@ Grok 的核心体验：随时在、全能问答、通网、有人格、能整活
 **Grok 主打"聪明"，麦格主打"全能又有人格"：什么都能聊，也什么都能造**。
 不为创作者专设——问答、决策、调研、工程、生活、情绪和创作，都是日常。
 
-## 架构（当前 v0.18.0，单插件合体）
+## 架构（当前 v0.31.2，单插件合体）
 
 插件实体（MiniMax Code 本地 Plugin V1）：`~/.minimax/plugins/maige-bot/`
 **bot 本体与管理面板已合体为一个插件**（2026-10-14，原独立面板插件已收编删除）：
@@ -59,7 +59,7 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 
 本目录（`Documents/minimax项目/maige-bot/`）是**项目文档中心**：人设原案、玩法设计、平台调研、迭代记录。
 
-**麦格（Mini App）v0.28.0**：`miniapps/maige-bot/`（已发布，local 来源）
+**麦格（Mini App）v0.31.2**：`miniapps/maige-bot/`（已发布，local 来源）
 - **群聊**：多 agent 实时对话——麦格 Chief 首发、@提及点名、成员人格接话（同棒最多 3 人并行接力）、正在输入状态、
   消息搜索、token 用量（每条消息带消耗，成员栏聚合）；引擎直连 config.yaml 的 OpenAI 兼容 provider（kimi-k3），消息持久化
 - **概览**：KPI（记忆数/作品数/敏感数/麦格版本）、最近记忆与作品、快捷口令速查
@@ -68,7 +68,7 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 - **作品库**：画廊浏览、点击预览（图片大图/音视频内联播放）、目录可切换
 - **设置**：记忆目录与作品目录可配置、插件版本信息
 - 麦格记忆统一落在 `maige-bot/memory/`，每条一个 .md（frontmatter: name/description/source/date/sensitive）
-- 回归测试：`node maige-bot/ops/test-panel.mjs`（153 项集成回归；另有 test/ 零依赖单测 26 项进 CI）
+- 回归测试：`node maige-bot/ops/test-panel.mjs`（153 项集成回归；另有 test/ 零依赖单测/API 测试进 CI）
 
 ## 使用方式
 
@@ -102,3 +102,4 @@ v0.3.0 记忆与边界治理（参考 dsh-bot，详见 `research/dsh-bot.md`）�
 | `assets/avatar-prompts.md` | 形象概念（可用于生成 bot 头像/表情包素材） |
 | `platforms/platform-paths.md` | 星野 / Agent Expert / MaxClaw 外溢路径调研 |
 | `ops/changelog.md` | 迭代记录 |
+| `research/collab-eval-2026-11-04.md` | 真实模型下的单聊/圆桌/攻坚协同实测报告 |

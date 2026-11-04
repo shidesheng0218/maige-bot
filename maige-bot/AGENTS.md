@@ -43,7 +43,14 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   其余 OpenAI 兼容端点不收这个陌生字段；`stream_options` 同理按 provider 开关；
   接力用 `[[CALL:key]]`，同棒最多 3 人并行、一轮最多 4 棒
 - **编排**：单聊/群聊/圆桌（`圆桌：主题`）/攻坚（`攻坚：任务`）都在 `core/orchestrator.mjs`；
-  攻坚最多 8 棒，允许回头叫已发言者
+  攻坚最多 8 棒，允许回头叫已发言者；主管只点 1-2 人时自动补足到 3 人（防退化单聊）；
+  圆桌开场/收尾使用不同 prompt（收尾必须收口，不许复述开场）；攻坚收口是「最后一棒」，
+  只允许 TASK/WRITE/DELIVER，禁止再搜索/再叫人
+- **指令解析**：`core/parse.mjs` 容忍空格与全角冒号；一条回复多个指令时终端指令
+  （WRITE/TASK/DELIVER/HIRE）优先，不被行内 SEARCH 抢掉；合法 `[[CALL]]` 不算格式漂移；
+  格式漂移最多重试一次，第二次仍漂移就把可见正文贴出，不能整轮吞掉
+- **终端动作**：WRITE/TASK/DELIVER/HIRE 执行后立即结束本轮（一回复一动作），防止模型重复开单；
+  整活单 assignee 取正文里**最先被点名**的人，不是成员列表第一个命中；嵌套的第二张单只提示不执行
 - **停止**：每个会话的回合持有 AbortController（`core/orchestrator.mjs` 的 beginTurn/cancelTurn），
   `POST /api/chat/stop` 可中断正在进行的模型请求；`callLlm` 收外部 signal，中止抛 `llm_aborted`（不算故障）；
   中止后不再续跑新回合，并落一条「已停止当前回合」系统消息
@@ -52,13 +59,24 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
   时长预算额外挂一个到点 abort 的 timer；停止原因分 user/tokens/time，收尾文案由 `budgetReasonText` 给。
   `runTurn` 有"本轮无产出即退出"的保护，避免预算为 0 时空转
 - **记忆**：非敏感记忆注入所有发言者 system prompt（敏感记忆两道门，永不自动注入）；
-  会话里发「记住：…」确定性落盘
+  会话里发「记住：…」确定性落盘；硬门在代码层（`core/sensitive.mjs`）：密码/密钥/token/证件号
+  命中即拒写（「记住：」、`[[REMEMBER]]`、面板新增/编辑三条路径都拦），不依赖模型自觉
+- **文件名**：id 类（记忆/任务/图片）仍用 `ID_PATTERN`；作品库/交付物/自定义头像用
+  `isSafeFileName` + `resolveFileInside`，允许中文/空格但拦 `/ \ ..`——中文作品名写得出也点得开
+- **持久化**：`persistChat` 串行写 + 临时文件 rename 原子替换（群聊同棒多人并行时旧快照不会覆盖新消息）；
+  聊天文件与配置一样收紧到 600
 - **搜索**：可插拔两层架构（`core/search.mjs` 纯逻辑）：免费层（必应/搜狗/DuckDuckGo）兜底 +
   API 层（Tavily/Brave，设置页配 key 启用）；`createHealthTracker` 记连续失败、失败多的自动降权；
+  `isRelevant` 做相关性兜底（必应把英文查询拆成词典/官网时判失败，自动换源）；
   健康度快照进 `/api/diagnostics`；解析器有防回归 fixture 单测。失败要诚实
-- **客户端**：`client/index.html`（壳）+ `client/static/css/app.css` + `client/static/js/app.js`（ES module）。
+- **客户端**：`client/index.html`（壳）+ `client/css/app.css` + `client/js/app.js`（ES module）。
   服务端 `/static/` 路由用 `resolveWorkspace` 白名单限定在 client 目录，只放行 `.js/.css/.svg`
 - **安装向导**：检测不到模型服务且首次打开 → 弹引导配模型；跳过/保存都记 localStorage 不再打扰
+- **定时任务**：`mode` 三档 `normal`（指定成员发言）/ `sprint`（攻坚）/ `roundtable`（圆桌）；
+  `capabilities` 是**本次运行临时挂载**的能力包（不改全局，tick 里 try/finally 还原）；
+  `goal` 拼进消息要求交付成品
+- **外部事件**：`POST /api/event`（token 鉴权）把外部系统的事件变成一个会话里的用户消息；
+  支持 `conv` / `mode` / `source` / `id`（幂等去重，内存保留最近 100 个）
 - **数据导出**：设置页「数据」一键导出 zip（记忆/任务/作品/配置），落作品库
 - **快捷口令**：聊天输入框打 `/` 出候选（上下键/Enter/Esc）；口令卡片同步
 - **移动端**：640px 以下会话列表收抽屉、聊天全宽
@@ -81,10 +99,11 @@ MiniMax Code 桌面版里的全能 bot 插件「麦格」：人格化问答 + �
 ## 验证清单（交付前）
 
 1. `node --check` 面板 server
-2. `node --test test/unit.test.mjs test/api.test.mjs`（CI 同款，零依赖）
+2. `node --test test/unit.test.mjs test/api.test.mjs`（CI 同款，零依赖，当前 70 项）
 3. `node maige-bot/ops/test-panel.mjs` 全过（真实 LLM 集成）
 4. `miniapp publish` + `open` + Browser 验收（结构/交互/console 零错误）
 5. 更新 changelog、README、AGENTS.md（防止文档漂移）
+6. 协同链路改动后跑一次真实模型圆桌/攻坚，报告存 `research/`（参考 `collab-eval-2026-11-04.md`）
 
 ## 团队调度（在麦格会话里）
 

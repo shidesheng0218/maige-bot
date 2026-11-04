@@ -9,8 +9,8 @@ export const ROLE_MAX_TOKENS = [
   { match: /主管|chief|收口|总结/, tokens: 8000 },
   { match: /评审|挑刺|压力测试|审/, tokens: 4000 },
   { match: /视觉|分镜|画面|美术|设计/, tokens: 4000 },
-  { match: /查证|调研|搜索|溯源|研究/, tokens: 2000 },
-  { match: /记录|纪要|归档|备忘/, tokens: 2000 },
+  { match: /查证|调研|搜索|溯源|研究/, tokens: 4000 },
+  { match: /记录|纪要|归档|备忘/, tokens: 4000 },
 ];
 
 export function maxTokensForRole(role) {

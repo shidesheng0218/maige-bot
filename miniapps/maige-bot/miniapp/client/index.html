@@ -469,6 +469,18 @@
           <label for="sch-goal" data-i18n="schedule.goal">产出目标（可选）</label>
           <input class="input" id="sch-goal" type="text" maxlength="300" placeholder="例如：把成品写成 .md 进作品库" data-i18n-ph="schedule.goal.ph" />
         </div>
+        <div class="field">
+          <label for="sch-mode" data-i18n="schedule.mode">执行方式</label>
+          <select class="select" id="sch-mode">
+            <option value="normal" data-i18n="schedule.mode.normal">指定成员发言</option>
+            <option value="sprint" data-i18n="schedule.mode.sprint">攻坚（拆任务 → 分工 → 交付）</option>
+            <option value="roundtable" data-i18n="schedule.mode.roundtable">圆桌（全员各一轮）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="schedule.caps">本次挂载的能力包（可选）</label>
+          <div class="caps-list" id="sch-caps"></div>
+        </div>
         <div class="form-error" id="sch-error" role="alert"></div>
         <div class="modal-actions">
           <button class="btn" type="button" id="sch-cancel" data-i18n="btn.cancel">取消</button>

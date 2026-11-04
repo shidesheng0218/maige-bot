@@ -51,6 +51,9 @@
           'a11y.viewMemory': '查看记忆详情', 'a11y.deleteMemory': '删除记忆',
           'schedule.err.name': '请填写任务名', 'schedule.err.text': '请填写发言内容',
           'schedule.goal': '产出目标（可选）', 'schedule.goal.ph': '例如：把成品写成 .md 进作品库',
+          'schedule.mode': '执行方式',
+          'schedule.mode.normal': '指定成员发言', 'schedule.mode.sprint': '攻坚（拆任务 → 分工 → 交付）', 'schedule.mode.roundtable': '圆桌（全员各一轮）',
+          'schedule.caps': '本次挂载的能力包（可选）', 'schedule.capsCount': '能力包 ×{n}',
           'empty.outputs': '作品库还是空的', 'empty.outputs.desc': '叫麦格「整活」——画图、做视频、写歌——成品会出现在这里。',
           'empty.outputs.dir': '作品目录还不存在', 'empty.outputs.dir.desc': '麦格生成的作品默认会存到这里；也可以在「设置」里换一个目录。',
           'empty.schedules': '还没有定时任务', 'empty.schedules.desc': '建一个试试：比如每天早上 9 点让麦格发毒舌晨报。',
@@ -70,7 +73,7 @@
           'schedule.member': '发言人', 'schedule.text': '发言内容', 'schedule.text.ph': '例如：搜一下今天的新闻，给我 5 条毒舌晨报',
           'schedule.freq': '频率', 'schedule.freq.daily': '每天定点', 'schedule.freq.interval': '每隔 N 分钟',
           'schedule.time': '时间', 'schedule.minutes': '间隔（分钟）',
-          'schedule.hint': '到点后，指定成员会在群聊里自动就这个话题发言',
+          'schedule.hint': '到点后按所选执行方式自动跑；可指定本次挂载的能力包与产出目标',
           'schedule.never': '还未执行过', 'schedule.lastRun': '上次执行 ',
           'schedule.freq.dailyAt': '每天 ', 'schedule.freq.intervalMin': '每 {n} 分钟',
           'schedule.delete.confirm': '删除定时任务「{name}」？',
@@ -183,6 +186,10 @@
           'toast.remembered': 'Remembered', 'toast.cleared': 'Cleared',
           'a11y.viewMemory': 'View memory details', 'a11y.deleteMemory': 'Delete memory',
           'schedule.err.name': 'Task name required', 'schedule.err.text': 'Content required',
+          'schedule.goal': 'Output goal (optional)', 'schedule.goal.ph': 'e.g. save the result as .md into outputs',
+          'schedule.mode': 'Run mode',
+          'schedule.mode.normal': 'Chosen member speaks', 'schedule.mode.sprint': 'Sprint (split → assign → deliver)', 'schedule.mode.roundtable': 'Roundtable (one round each)',
+          'schedule.caps': 'Capabilities for this run (optional)', 'schedule.capsCount': 'caps ×{n}',
           'empty.outputs': 'No works yet', 'empty.outputs.desc': 'Ask Maige to create — images, videos, songs — they land here.',
           'empty.outputs.dir': 'Outputs directory missing', 'empty.outputs.dir.desc': 'Generated works go here by default; pick another in Settings.',
           'empty.schedules': 'No scheduled tasks', 'empty.schedules.desc': 'Try one: Maige posts a snarky morning briefing at 9am daily.',
@@ -202,7 +209,7 @@
           'schedule.member': 'Speaker', 'schedule.text': 'What to say', 'schedule.text.ph': 'e.g. Search today\'s news and give me 5 snarky headlines',
           'schedule.freq': 'Frequency', 'schedule.freq.daily': 'Daily at', 'schedule.freq.interval': 'Every N minutes',
           'schedule.time': 'Time', 'schedule.minutes': 'Interval (minutes)',
-          'schedule.hint': 'When due, the chosen member posts on this topic in the group chat',
+          'schedule.hint': 'Runs automatically in the selected mode; you can attach capabilities and set an output goal',
           'schedule.never': 'Never ran', 'schedule.lastRun': 'Last run ',
           'schedule.freq.dailyAt': 'Daily ', 'schedule.freq.intervalMin': 'Every {n} min',
           'schedule.delete.confirm': 'Delete task "{name}"?',
@@ -353,6 +360,7 @@
         scheduleMask: $('schedule-mask'), scheduleForm: $('schedule-form'),
         schName: $('sch-name'), schMember: $('sch-member'), schText: $('sch-text'),
         schFreq: $('sch-freq'), schTime: $('sch-time'), schMinutes: $('sch-minutes'), schGoal: $('sch-goal'),
+        schMode: $('sch-mode'), schCaps: $('sch-caps'),
         schTimeWrap: $('sch-time-wrap'), schMinutesWrap: $('sch-minutes-wrap'),
         schError: $('sch-error'), schCancel: $('sch-cancel'), schSubmit: $('sch-submit'),
         themeAuto: $('theme-auto'), themeLight: $('theme-light'), themeDark: $('theme-dark'),
@@ -2052,6 +2060,18 @@
             who.className = 'badge badge-user';
             who.textContent = s.memberKey === 'maige' ? '麦格' : s.memberKey;
             head.appendChild(who);
+            if (s.mode && s.mode !== 'normal') {
+              var modeBadge = document.createElement('span');
+              modeBadge.className = 'badge';
+              modeBadge.textContent = t('schedule.mode.' + s.mode);
+              head.appendChild(modeBadge);
+            }
+            if (s.capabilities && s.capabilities.length) {
+              var capBadge = document.createElement('span');
+              capBadge.className = 'badge';
+              capBadge.textContent = t('schedule.capsCount', { n: s.capabilities.length });
+              head.appendChild(capBadge);
+            }
             var meta = document.createElement('span');
             meta.className = 'schedule-meta';
             meta.textContent = s.lastRunAt ? t('schedule.lastRun') + s.lastRunAt.slice(0, 16).replace('T', ' ') : t('schedule.never');
@@ -2085,6 +2105,7 @@
         els.schName.value = '';
         els.schText.value = '';
         if (els.schGoal) els.schGoal.value = '';
+        if (els.schMode) els.schMode.value = 'normal';
         els.schFreq.value = 'daily';
         els.schTimeWrap.hidden = false;
         els.schMinutesWrap.hidden = true;
@@ -2097,6 +2118,39 @@
           opt.textContent = m.displayName + (m.key === 'maige' ? t('member.chief') : '');
           els.schMember.appendChild(opt);
         });
+        // 能力包多选：勾了就在本次运行时临时挂上
+        if (els.schCaps) {
+          els.schCaps.innerHTML = '';
+          api('/api/capabilities').then(function (data) {
+            if (!data.items.length) {
+              els.schCaps.textContent = t('bot.caps.empty');
+              els.schCaps.style.color = 'var(--mcode-text-subtle)';
+              els.schCaps.style.fontSize = '12px';
+              return;
+            }
+            data.items.forEach(function (p) {
+              var label = document.createElement('label');
+              label.className = 'cap-check';
+              var cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.value = p.id;
+              label.appendChild(cb);
+              var wrap = document.createElement('span');
+              var nm = document.createElement('div');
+              nm.className = 'cap-name';
+              nm.textContent = p.name;
+              wrap.appendChild(nm);
+              if (p.description) {
+                var ds = document.createElement('div');
+                ds.className = 'cap-desc';
+                ds.textContent = p.description;
+                wrap.appendChild(ds);
+              }
+              label.appendChild(wrap);
+              els.schCaps.appendChild(label);
+            });
+          }).catch(function () { /* 能力包读取失败不影响建任务 */ });
+        }
         els.scheduleMask.hidden = false;
         els.schName.focus();
       }
@@ -2106,6 +2160,12 @@
         var text = els.schText.value.trim();
         if (!name) { els.schError.textContent = t('schedule.err.name'); return; }
         if (!text) { els.schError.textContent = t('schedule.err.text'); return; }
+        var caps = [];
+        if (els.schCaps) {
+          els.schCaps.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+            if (cb.checked) caps.push(cb.value);
+          });
+        }
         els.schSubmit.disabled = true;
         api('/api/schedules', {
           method: 'POST',
@@ -2115,6 +2175,8 @@
             text: text,
             memberKey: els.schMember.value,
             goal: els.schGoal ? els.schGoal.value.trim() : '',
+            mode: els.schMode ? els.schMode.value : 'normal',
+            capabilities: caps,
             freqType: els.schFreq.value,
             time: els.schTime.value,
             minutes: parseInt(els.schMinutes.value, 10) || 60
@@ -2299,14 +2361,6 @@
         setTheme(themeOverride);
         loadProviders();
         loadSearchProviders();
-        // 导出全部数据：打包 zip 到作品库，然后让用户自己取
-        if (els.exportData) {
-          els.exportData.addEventListener('click', function () {
-            api('/api/data/export', { method: 'POST' }).then(function (r) {
-              showToast(t('toast.data.exported') + '：' + (r.name || ''));
-            }).catch(function () { showToast(t('toast.fail.config')); });
-          });
-        }
         api('/api/info').then(function (info) {
           els.cfgMemoryDir.value = info.memoryDir;
           els.cfgOutputsDir.value = info.outputsDir;
@@ -2495,6 +2549,12 @@
       els.refreshOutputs.addEventListener('click', loadOutputs);
       els.saveConfig.addEventListener('click', saveConfig);
       els.resetConfig.addEventListener('click', resetConfig);
+      // 导出全部数据：只在启动时绑定一次（放在 loadSettings 里会随每次进设置页重复绑定）
+      els.exportData.addEventListener('click', function () {
+        api('/api/data/export', { method: 'POST' }).then(function (r) {
+          showToast(t('toast.data.exported') + '：' + (r.name || ''));
+        }).catch(function () { showToast(t('toast.fail.config')); });
+      });
       els.providerForm.addEventListener('submit', function (e) { e.preventDefault(); saveProvider(); });
       els.pvClear.addEventListener('click', clearProviderForm);
       els.refreshSchedules.addEventListener('click', loadSchedules);

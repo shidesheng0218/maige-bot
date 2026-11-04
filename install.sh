@@ -76,17 +76,22 @@ cat <<EOF
 
   麦格装好了。
 
-  下一步：
-  1. 打开 MiniMax Code，新会话生效（叫一声「麦格」）
-  2. 配模型（二选一）：
-     · 面板里配：打开面板 → 设置 → 模型服务，填 Base URL / API Key / 模型列表
-     · 环境变量：export MAIGE_LLM_BASE_URL=... MAIGE_LLM_API_KEY=... MAIGE_LLM_MODELS=...
-     任何 OpenAI 兼容服务都行（DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…）
-  3. 可选：配 MiniMax API key 解锁文生图/语音——面板设置页填，或：
-       curl -X PUT http://127.0.0.1:17878/api/config -H 'content-type: application/json' -d '{"minimaxApiKey":"sk-..."}'
-  4. 独立运行（脱离 MCode）：node miniapps/maige-bot/miniapp/node/standalone.mjs
-  5. 更新到最新版：./install.sh --update
-  6. 卸载：./install.sh --uninstall
+  两种用法（任选）：
+
+  A. 不需要 MiniMax Code —— 直接起独立面板（推荐先试这个）
+     node miniapps/maige-bot/miniapp/node/standalone.mjs
+     打开终端打印的带令牌链接；首次会弹安装向导，填 Base URL / API Key / 模型列表即可。
+     想双击打开：bash maige-bot/ops/build-app.sh  # 生成 麦格.app
+
+  B. 装进 MiniMax Code —— 重开 MCode 新会话，叫一声「麦格」
+     插件会自动复用 MCode 的模型配置。
+
+  其他：
+  · 配模型的地方：面板 → 设置 → 模型服务（任何 OpenAI 兼容服务都行：
+    DeepSeek / Kimi / 通义 / OpenAI / Ollama / vLLM…），或环境变量
+    MAIGE_LLM_BASE_URL / MAIGE_LLM_API_KEY / MAIGE_LLM_MODELS
+  · 可选生成能力（文生图/语音/视频）：面板设置页填 MiniMax API key
+  · 更新：./install.sh --update     卸载：./install.sh --uninstall
 
   项目根默认 \$HOME/Documents/minimax项目，用 MAIGE_ROOT 环境变量覆盖。
   文档：README.md · maige-bot/README.md · maige-bot/AGENTS.md

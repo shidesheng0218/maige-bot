@@ -15,43 +15,41 @@ export function parseAgentFrontmatter(raw) {
   return out;
 }
 
-/** 解析 bot 回复里的工具指令（一条回复最多认 1 个，WRITE/TASK/HIRE 必须是回复的结尾） */
+/** 解析 bot 回复里的工具指令（一条回复最多认 1 个，WRITE/TASK/HIRE 必须是回复的结尾）。
+ *  对空格和全角冒号宽容：模型常写 [[CALL: x]] / [[TASK：text：标题]]，不能因此静默失败。
+ *  模型偶尔一条回复写多个指令：取文本里最后出现的那个——WRITE/TASK/DELIVER 按约定写在末尾，
+ *  不能被前面的 [[SEARCH]] 抢掉（真实实测里出现过「开了单却只执行了搜索」）。 */
 export function parseTool(text) {
-  let m = text.match(/\[\[SEARCH:([^\]]+)\]\]/);
-  if (m) return { name: 'search', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[READ:([^\]]+)\]\]/);
-  if (m) return { name: 'read', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[LS:([^\]]+)\]\]/);
-  if (m) return { name: 'ls', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[WRITE:([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'write', arg: m[1].trim(), content: m[2].trim(), raw: m[0] };
-  m = text.match(/\[\[TASK:([A-Za-z]+):([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'task', kind: m[1].trim().toLowerCase(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] };
-  m = text.match(/\[\[HIRE:([a-z][a-z0-9-]{1,30}):([^\]\n:]+):([^\]]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'hire', arg: m[1].trim(), role: m[2].trim(), display: m[3].trim(), content: m[4].trim(), raw: m[0] };
-  // [[CONFIG:key:field:value]] 调整成员配置（field: maxTokens/model）
-  m = text.match(/\[\[CONFIG:([a-z][a-z0-9-]{1,30}):(maxTokens|model):([^\]]+)\]\]/);
-  if (m) return { name: 'config', arg: m[1].trim(), field: m[2].trim(), value: m[3].trim(), raw: m[0] };
-  // [[GENERATE_IMAGE:提示词]] 文生图；[[SPEAK:文本]] 文转语音
-  m = text.match(/\[\[GENERATE_IMAGE:([^\]\n]+)\]\]/);
-  if (m) return { name: 'generate_image', arg: m[1].trim(), raw: m[0] };
-  m = text.match(/\[\[SPEAK:([^\]\n]+)\]\]/);
-  if (m) return { name: 'speak', arg: m[1].trim(), raw: m[0] };
-  // [[DELIVER:任务id:文件名]] 换行后接内容——把成品挂回整活单（验收交付）
-  m = text.match(/\[\[DELIVER:([A-Za-z0-9._-]+):([^\]\n]+)\]\]\s*\n([\s\S]+)$/);
-  if (m) return { name: 'deliver', taskId: m[1].trim(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] };
-  m = text.match(/\[\[GENERATE_VIDEO:([^\]\n]+)\]\]/);
-  if (m) return { name: 'generate_video', arg: m[1].trim(), raw: m[0] };
-  // [[REMEMBER:正文]] 自动捕获记忆（bot 主动记下，无需用户说"记住"）
-  m = text.match(/\[\[REMEMBER:([^\]]+)\]\]/);
-  if (m) return { name: 'remember', arg: m[1].trim(), raw: m[0] };
-  return null;
+  const s = String(text || '');
+  const found = [];
+  const add = (re, build) => {
+    const m = s.match(re);
+    if (m) found.push({ at: m.index ?? 0, value: build(m) });
+  };
+  add(/\[\[\s*SEARCH\s*[:：]\s*([^\]]+?)\s*\]\]/, (m) => ({ name: 'search', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*READ\s*[:：]\s*([^\]]+?)\s*\]\]/, (m) => ({ name: 'read', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*LS\s*[:：]\s*([^\]]+?)\s*\]\]/, (m) => ({ name: 'ls', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*WRITE\s*[:：]\s*([^\]\n]+?)\s*\]\]\s*\n([\s\S]+)$/, (m) => ({ name: 'write', arg: m[1].trim(), content: m[2].trim(), raw: m[0] }));
+  add(/\[\[\s*TASK\s*[:：]\s*([A-Za-z]+)\s*[:：]\s*([^\]\n]+?)\s*\]\]\s*\n([\s\S]+)$/, (m) => ({ name: 'task', kind: m[1].trim().toLowerCase(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] }));
+  add(/\[\[\s*HIRE\s*[:：]\s*([a-z][a-z0-9-]{1,30})\s*[:：]\s*([^\]\n:：]+?)\s*[:：]\s*([^\]]+?)\s*\]\]\s*\n([\s\S]+)$/, (m) => ({ name: 'hire', arg: m[1].trim(), role: m[2].trim(), display: m[3].trim(), content: m[4].trim(), raw: m[0] }));
+  add(/\[\[\s*CONFIG\s*[:：]\s*([a-z][a-z0-9-]{1,30})\s*[:：]\s*(maxTokens|model)\s*[:：]\s*([^\]]+?)\s*\]\]/, (m) => ({ name: 'config', arg: m[1].trim(), field: m[2].trim(), value: m[3].trim(), raw: m[0] }));
+  add(/\[\[\s*GENERATE_IMAGE\s*[:：]\s*([^\]\n]+?)\s*\]\]/, (m) => ({ name: 'generate_image', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*SPEAK\s*[:：]\s*([^\]\n]+?)\s*\]\]/, (m) => ({ name: 'speak', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*DELIVER\s*[:：]\s*([A-Za-z0-9._-]+)\s*[:：]\s*([^\]\n]+?)\s*\]\]\s*\n([\s\S]+)$/, (m) => ({ name: 'deliver', taskId: m[1].trim(), arg: m[2].trim(), content: m[3].trim(), raw: m[0] }));
+  add(/\[\[\s*GENERATE_VIDEO\s*[:：]\s*([^\]\n]+?)\s*\]\]/, (m) => ({ name: 'generate_video', arg: m[1].trim(), raw: m[0] }));
+  add(/\[\[\s*REMEMBER\s*[:：]\s*([^\]]+?)\s*\]\]/, (m) => ({ name: 'remember', arg: m[1].trim(), raw: m[0] }));
+  if (!found.length) return null;
+  found.sort((a, b) => a.at - b.at);
+  // 终端指令（WRITE/TASK/DELIVER/HIRE）的内容一直吃到回复结尾，优先级最高；
+  // 它们正文里出现的 [[SEARCH]] 属于需求描述，不能被当成要执行的工具。
+  const terminal = found.filter((x) => ['write', 'task', 'deliver', 'hire'].includes(x.value.name));
+  return (terminal.length ? terminal[terminal.length - 1] : found[found.length - 1]).value;
 }
 
 /** 解析一次发言里的接力指令 [[CALL:key]]：去重、跳过已发言者、最多 3 人 */
 export function parseCalls(text, members, alreadySpoke) {
   const calls = [];
-  for (const m of text.matchAll(/\[\[CALL:([A-Za-z0-9._-]+)\]\]/g)) {
+  for (const m of text.matchAll(/\[\[\s*CALL\s*[:：]\s*([A-Za-z0-9._-]+)\s*\]\]/g)) {
     const key = m[1];
     if (key === 'maige' && alreadySpoke.has('maige')) continue;
     if (members.some((x) => x.key === key) && !alreadySpoke.has(key) && !calls.includes(key)) calls.push(key);
