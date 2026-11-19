@@ -363,6 +363,7 @@ export function createOrchestrator(deps) {
       // 中间棒：被点名的人发言（可用工具、可再 CALL 别人接着讨论），最多 8 棒防暴走
       let hops = 0;
       while (queue.length && hops < 8) {
+        if (isCancelled(convId)) break;
         const batch = queue.filter((k) => !spoke.has(k)).slice(0, 3);
         if (!batch.length) { // 都在叫已发言的人：挑一个已发言的接着讨论（允许来回）
           const again = queue.find((k) => members.some((m) => m.key === k));
@@ -386,13 +387,33 @@ export function createOrchestrator(deps) {
         queue = next;
         hops++;
       }
-      // 收口：麦格汇总讨论产出方案，并按分工把子任务开成整活单（assignee 到人）
+      // ---------- 交锋阶段（v0.32.0）：方案亮完后强制至少一轮交叉质疑/补充 ----------
+      // 此前攻坚是「一轮并行 + 主管收尾」——每个人各说各的，没有相互碰撞。
+      // 现在：所有首发过的人按发言顺序返场一次，只能针对别人刚说的内容给真态度；
+      // 若团队有评审角色（key 含 review），它必须返场一次挑刺。全程受预算约束。
+      if (!isCancelled(convId) && spoke.size > 1) {
+        await appendMessage(convId, 'system', '攻坚', '—— 交叉辩论：每人针对别人刚说的返场一次，可以反对、可以补刀 ——', 'system');
+        const order = [...spoke]; // 首发顺序
+        for (let i = 0; i < order.length; i++) {
+          if (isCancelled(convId)) break;
+          const key = order[i];
+          const m = members.find((x) => x.key === key);
+          if (!m) continue;
+          const isReviewer = /review|评审|挑刺/i.test(m.key) || /review|评审|挑刺/i.test(m.role || '');
+          const extra = isReviewer
+            ? '【交锋·你是评审】刚才每个人都亮了自己的部分。现在专门挑刺：找出至少一个方案里的真实漏洞、风险或没说清的假设，点名道姓指出来。不要夸，不要总结，只挑毛病。'
+            : '【交锋】刚才每个人都亮了自己的部分。现在针对别人刚说的给真态度：可以反对、补充、指出对方的盲区或更好的做法；必须引用具体人的具体说法，不要泛泛而谈，不要重复你自己说过的话。';
+          await speakWithTools(convId, m, brief(m) + extra);
+        }
+      }
+      // 收口：麦格汇总讨论+交锋，产出方案，并按分工把子任务开成整活单（assignee 到人）
       await speakWithTools(convId, chief, brief(chief)
-        + '【攻坚收口·最后一棒】讨论阶段已结束。不要再回应成员、不要再安排搜索、不要再叫任何人。'
-        + '现在必须做三件事：1) 用 5-8 行给出可执行方案（谁做什么、产出什么、先后顺序）；'
-        + '2) 方案里需要产出成品的部分，用 [[TASK:类型:标题]] 开整活单（正文写清需求+交付标准），单子会自动挂到对应成员头上；'
+        + '【攻坚收口·最后一棒】讨论和交锋都已结束。不要再回应成员、不要再安排搜索、不要再叫任何人。'
+        + '现在必须做四件事：1) 先指出交锋里最有价值的一条质疑或分歧（点名是谁提的）；'
+        + '2) 用 5-8 行给出可执行方案（谁做什么、产出什么、先后顺序），方案要回应掉那条质疑；'
+        + '3) 方案里需要产出成品的部分，用 [[TASK:类型:标题]] 开整活单（正文写清需求+交付标准），单子会自动挂到对应成员头上；'
         + '一条回复只开一张最关键的单，其余产出在方案里写清谁负责；'
-        + '3) 用一句话告诉 Mike 下一步。简洁，能落地。', { final: true });
+        + '4) 用一句话告诉 ' + ownerLabel() + ' 下一步。简洁，能落地。', { final: true });
       await appendMessage(convId, 'system', '攻坚', '攻坚结束', 'system');
       context.logger.info('maige-bot.sprint.done');
     } finally {

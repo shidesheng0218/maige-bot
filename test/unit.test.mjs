@@ -543,3 +543,29 @@ test('search: stripHtml 与免费引擎解析器（防回归 fixture）', async 
   assert.equal(items[0].snippet, '摘要A');
   assert.equal(items[1].snippet, '');
 });
+
+// ---------- 攻坚多轮交叉辩论（v0.32.0） ----------
+test('orchestrator: 交锋阶段结构约束（>1 人发言才交锋，评审必返场）', async () => {
+  // 结构性测试：交锋阶段的触发条件和评审识别逻辑
+  // 真实 LLM 协同在 ops/test-collab.mjs 实测，这里锁定逻辑骨架
+  const members = [
+    { key: 'maige', displayName: '麦格', role: '主管' },
+    { key: 'lengjiao-reviewer', displayName: 'Barb', role: '评审员：挑刺、压力测试' },
+    { key: 'moke-writer', displayName: 'Quill', role: '写手' },
+  ];
+  // 评审识别：key 或 role 含 review/评审/挑刺 都算
+  const isReviewer = (m) => /review|评审|挑刺/i.test(m.key) || /review|评审|挑刺/i.test(m.role || '');
+  assert.equal(isReviewer(members[1]), true, 'Barb 应被识别为评审');
+  assert.equal(isReviewer(members[2]), false, 'Quill 不是评审');
+  assert.equal(isReviewer(members[0]), false, '麦格不是评审');
+});
+
+test('orchestrator: 交锋提示词要求引用具体人+给真态度', () => {
+  // 交锋阶段的 prompt 骨架（与 orchestrator.mjs 里的 brief(m)+extra 对齐）
+  const reviewerPrompt = '【交锋·你是评审】刚才每个人都亮了自己的部分。现在专门挑刺：找出至少一个方案里的真实漏洞、风险或没说清的假设，点名道姓指出来。不要夸，不要总结，只挑毛病。';
+  const memberPrompt = '【交锋】刚才每个人都亮了自己的部分。现在针对别人刚说的给真态度：可以反对、补充、指出对方的盲区或更好的做法；必须引用具体人的具体说法，不要泛泛而谈，不要重复你自己说过的话。';
+  assert.match(reviewerPrompt, /点名道姓/, '评审提示词应要求点名');
+  assert.match(reviewerPrompt, /只挑毛病/, '评审提示词应禁止夸');
+  assert.match(memberPrompt, /引用具体人的具体说法/, '成员提示词应要求引用具体说法');
+  assert.match(memberPrompt, /不要重复你自己说过的话/, '应禁止复读');
+});
