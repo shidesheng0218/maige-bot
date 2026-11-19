@@ -47,6 +47,7 @@ jobs:
           MAIGE_LLM_MODELS: mock-chat
           MAIGE_HQ_NO_NOTIFY: "1"
           MAIGE_HQ_PORT: "17878"
+          MAIGE_PANEL_TOKEN: ci-smoke-token   # v0.29.0 起所有 /api/* 要求 Bearer 鉴权
         run: |
           # 起 mock 模型服务（模拟用户的 DeepSeek/Kimi key）
           cat > /tmp/mock-llm.mjs <<'MOCK'
@@ -63,29 +64,32 @@ jobs:
           # 起麦格独立版
           node miniapps/maige-bot/miniapp/node/standalone.mjs &
           PANEL_PID=$!
+          AUTH="authorization: Bearer ci-smoke-token"
           # 等服务就绪
           for i in $(seq 1 40); do
-            curl -sf http://127.0.0.1:17878/api/info >/dev/null 2>&1 && break
+            curl -sf -H "$AUTH" http://127.0.0.1:17878/api/info >/dev/null 2>&1 && break
             sleep 0.5
           done
           # 验证：服务起来了 + 读到了 mock 模型
-          curl -sf http://127.0.0.1:17878/api/diagnostics | grep -q '"llmReady":true'
+          curl -sf -H "$AUTH" http://127.0.0.1:17878/api/diagnostics | grep -q '"llmReady":true'
           echo "standalone up, llmReady=true"
       - name: Send a message and verify Maige replies via the mock model
         run: |
           curl -sf -X POST http://127.0.0.1:17878/api/chat/send \
             -H 'content-type: application/json' \
+            -H 'x-maige-csrf: 1' \
+            -H 'authorization: Bearer ci-smoke-token' \
             -d '{"conv":"chief","text":"你好"}' > /dev/null
           # 等回复：CI 容器网络/CPU 慢，给足 90 秒
           for i in $(seq 1 180); do
             sleep 0.5
             # mock 服务 stdout 直接进 CI 日志，所以"被调用"就看消息里有没有 mock 的固定回复
-            if curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | grep -q '（mock 模型已回复）'; then
+            if curl -s -H 'authorization: Bearer ci-smoke-token' 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | grep -q '（mock 模型已回复）'; then
               echo "PASS: mock provider was actually called"
               exit 0
             fi
           done
           echo "FAIL: mock provider was not called within 90s"
           echo "=== 消息快照（排查用）==="
-          curl -s 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | head -c 2000
+          curl -s -H 'authorization: Bearer ci-smoke-token' 'http://127.0.0.1:17878/api/chat/messages?conv=chief' | head -c 2000
           exit 1
